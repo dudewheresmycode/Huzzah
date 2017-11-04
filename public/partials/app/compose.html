@@ -1,0 +1,81 @@
+<div class="compose-mail">
+
+  <div class="compose-actions">
+    <!-- <button type="submit" class="btn btn-default actions-left"><i class="fal fa-paperclip"></i> Attach Files</button>
+
+    <button type="submit" ng-click="send()" class="btn btn-primary actions-right"><i class="fal fa-paper-plane"></i> Send</button>
+    <button type="submit" class="btn btn-default actions-right"><i class="fal fa-file-edit"></i> Save Draft</button> -->
+
+    <ul class="nav nav-pills pull-right">
+      <li role="presentation" tooltip-placement="bottom" uib-tooltip="Attach Files" tooltip-append-to-body="true"><a href attach-file ng-model="params.attachments"><i class="fal fa-fw fa-paperclip"></i></a></li>
+      <li role="presentation" tooltip-placement="bottom" uib-tooltip="Save Draft" tooltip-append-to-body="true"><a href="#"><i class="fal fa-fw fa-file-edit"></i></a></li>
+      <li role="presentation" tooltip-placement="bottom" uib-tooltip="Send" tooltip-append-to-body="true">
+        <a ng-click="send()" href class="text-primary"><i class="fal fa-fw fa-paper-plane"></i></a>
+      </li>
+      <!-- <li role="presentation"><a href="#"><i class="fal fa-fw fa-ellipsis-h"></i></a></li> -->
+    </ul>
+  </div>
+
+
+  <div class="compose-header">
+    <form class="form-horizontal">
+
+      <div class="form-group row">
+        <!-- <div class="btn-group pull-right">
+          <label class="btn btn-default" ng-model="optionals.cc_open">CC</label>
+          <label class="btn btn-default" ng-model="optionals.bcc_open">BCC</label>
+        </div> -->
+        <label class="col-sm-2 col-md-2 control-label">To</label>
+        <!-- <input type="text" class="form-control" /> -->
+        <div class="col-sm-7 col-md-8">
+          <tags-input ng-model="params.to" data-type="email" data-use-strings="true" data-placeholder="Enter an email address" data-allowed-tags-pattern="{{emailRegex}}"></tags-input>
+        </div>
+        <div class="col-sm-3 col-md-2 text-right">
+          <div class="btn-group">
+            <label class="btn btn-sm" ng-model="optionals.cc_open" uib-btn-checkbox>CC</label>
+            <label class="btn btn-sm" ng-model="optionals.bcc_open" uib-btn-checkbox>BCC</label>
+          </div>
+        </div>
+          <!-- <tags-input> <auto-complete source="loadTags($query)"></auto-complete> </tags-input> -->
+
+      </div>
+      <div class="form-group row" uib-collapse="!optionals.cc_open">
+        <label class="col-sm-2 control-label">CC</label>
+        <div class="col-sm-10">
+          <tags-input ng-model="params.cc" data-type="email" data-use-strings="true" data-placeholder="Enter an email address" data-allowed-tags-pattern="{{emailRegex}}"></tags-input>
+        </div>
+      </div>
+
+      <div class="form-group row" uib-collapse="!optionals.bcc_open">
+        <label class="col-sm-2 control-label">BCC</label>
+        <div class="col-sm-10">
+          <tags-input ng-model="params.bcc" data-type="email" data-use-strings="true" data-placeholder="Enter an email address" data-allowed-tags-pattern="{{emailRegex}}"></tags-input>
+        </div>
+      </div>
+
+      <div class="form-group row">
+        <label class="col-sm-2 control-label">Subject</label>
+        <div class="col-sm-10">
+          <input type="text" class="form-control" ng-model="params.subject" />
+        </div>
+      </div>
+
+      <div class="form-group row" uib-collapse="params.attachments.length==0">
+        <label class="col-sm-2 control-label">Attachments</label>
+        <div class="col-sm-10">
+          <span class="label label-default" ng-repeat="file in params.attachments">{{file.name}}</span>
+        </div>
+      </div>
+
+    </form>
+  </div>
+  <div class="compose-body">
+    <div class="quill-wrapper">
+      <div class="quill-editor" quill ng-model="params.body"></div>
+    </div>
+    <!-- <div class="compose-attachment"></div> -->
+  </div>
+
+  <!-- <pre>{{optionals}}</pre> -->
+  <!-- <pre>{{params}}</pre> -->
+</div>

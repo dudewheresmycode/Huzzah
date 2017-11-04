@@ -1,0 +1,20 @@
+<div class="app-grid-mailbox-list" ng-class="{'message-open':hasMessageOpened}">
+  <div class="list-group mail-group" ng-show="hasMailboxResponse">
+    <div ng-if="messages.length==0" class="list-group-empty">
+      No messages exist
+    </div>
+    <a class="list-group-item" ng-repeat="message in messages | orderBy:'-seq'" ui-sref-active="active" ui-sref=".message({message:message.seq})">
+      <span class="list-group-item-text small text-muted pull-right">{{message.headers.date[0]|maildate}}</span>
+      <h5 class="list-group-item-heading">{{message.headers.from[0]}}</h5>
+      <p class="list-group-item-text">
+        {{message.headers.subject[0]}}
+      </p>
+    </a>
+  </div>
+  <!-- <pre>
+    {{hasMessageOpened}}
+  </pre> -->
+
+</div>
+
+<div class="app-grid-mailbox-message" ng-class="{'message-open':hasMessageOpened}" ui-view></div>

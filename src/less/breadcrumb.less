@@ -1,0 +1,18 @@
+
+.breadcrumb.breadcrumb-steps {
+  text-align: center;
+  background-color: transparent;
+  .breadcrumb-icon {
+    color: #ccc;
+    &.complete {
+      color: @brand-success;
+    }
+  }
+  > .active {
+    color: @brand-primary;
+    .breadcrumb-icon {
+      color: @brand-primary;
+    }
+    // border-bottom: 3px solid @brand-primary;
+  }
+}

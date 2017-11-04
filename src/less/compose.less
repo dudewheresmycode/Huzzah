@@ -1,0 +1,84 @@
+
+@import (less) "../../node_modules/quill/dist/quill.core.css";
+// @import (less) "../../node_modules/quill/dist/quill.bubble.css";
+@import (less) "../../node_modules/quill/dist/quill.snow.css";
+
+.navbar-compose-button {
+  border-right: 1px solid @default-border-color;
+  padding-right: 15px;
+  padding-left: 15px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.compose-mail {
+  border-left: 1px solid @default-border-color;
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  .compose-actions {
+    flex: 0 1 auto;
+    margin-bottom: 20px;
+    display: block;
+    // border-left: 1px solid @default-border-color;
+    border-bottom: 1px solid @default-border-color;
+    background-color: #fff;
+    // padding: 15px;
+
+    .actions-left {
+      float:left;
+    }
+    .actions-right {
+      float:right;
+      margin-left: 15px;
+    }
+  }
+  .compose-header {
+    // background: @gray-lighter;
+    padding: 15px;
+    flex: 0 1 auto;
+  }
+  .compose-body {
+
+    flex: 1 1 auto;
+    display: block;
+    position: relative;
+
+    .quill-wrapper {
+      position: absolute;
+      display: block;
+      width: 100%;
+      top: 0px; // toolbar
+      bottom: 42px; // padding
+      // height: calc(100% - 42px);
+
+      .quill-editor {
+        // position: absolute;
+        // top: 0; bottom: 0;
+        border: 0px;
+        background-color: #fff;
+      }
+      .ql-container {
+        font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        font-size: 14px;
+      }
+      .ql-toolbar.ql-snow {
+        border-top: 0px;
+        border-right: 0px;
+        border-left: 0px;
+        border-bottom: 1px solid @default-border-color;
+      }
+    }
+
+    // .compose-attachment {
+    //   position: absolute;
+    //   display: block;
+    //   width: 20%;
+    //   top: 0px; // toolbar
+    //   bottom: 0px; // padding
+    // }
+
+  }
+
+}

@@ -1,0 +1,107 @@
+.app-grid {
+  position: absolute;
+  top: 50px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: row;
+
+  .app-grid-col {
+    height: 100%;
+    position: relative;
+
+    &.app-grid-sidebar {
+      flex: 0 0 auto;
+      // padding: 15px;
+      padding-top: 15px;
+      .nav {
+        > li {
+          // font-size: 12px;
+        }
+      }
+      .sidebar-status {
+        height: 100px;
+        border-top: 1px solid @default-border-color;
+        position: absolute;
+        bottom: 0px;
+      }
+    }
+    &.app-grid-mailbox {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: row;
+      // margin-right: 15px;
+      // border-left: 1px solid @default-border-color;
+
+      .app-grid-mailbox-list {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        margin-right: auto;
+        width: 100%;
+        transition: width 250ms ease-out;
+        background: @gray-lighter;
+        box-shadow: 0px 1px 4px rgba(0,0,0,0.25);
+        z-index: 999;
+
+        &.message-open {
+          width: 33%;
+        }
+      }
+      .app-grid-mailbox-message {
+        // border-left: 1px solid @default-border-color;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        transition: opacity 1s ease-in-out;
+        transition-delay: 500ms;
+        opacity: 0;
+        width: 0;
+        &.message-open {
+          width: 67%;
+          opacity: 1;
+        }
+
+        .app-grid-mailbox-message-actions {
+          flex: 0 0 auto;
+          border-bottom: 1px solid @default-border-color;
+        }
+        .app-grid-mailbox-message-content {
+          flex: 1 1 auto;
+          overflow-y: auto;
+          position: relative;
+
+          .message-loading {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            line-height: 2;
+            flex: 1 1 auto;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            color: @gray-light;
+            font-size: 1.5em;
+          }
+
+          .message-headers {
+            padding: 15px 0;
+            background: @gray-lighter;
+            border-bottom: 1px solid @default-border-color;
+          }
+          .message-body {
+
+          }
+        }
+      }
+    }
+  }
+}
+.flexpage {
+  flex: 1 1 auto;
+  padding: 15px;
+  overflow: auto;
+}

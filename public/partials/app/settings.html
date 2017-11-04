@@ -1,0 +1,63 @@
+
+<div class="flexpage">
+  <h5>Settings</h5>
+
+  <uib-tabset active="activePill" vertical="true" type="pills" template-url="/partials/tpl/vertical-tabset.html">
+    <uib-tab index="0" heading="IMAP Settings" template-url="/partials/tpl/vertical-tab.html">
+
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" class="form-control" ng-model="imap.password" />
+      </div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" class="form-control" ng-model="imap.username" placeholder="{{imap.defaults.username}}" />
+      </div>
+      <div class="form-group">
+        <label>Hostname</label>
+        <input type="text" class="form-control" ng-model="imap.host" placeholder="{{imap.defaults.host}}" />
+      </div>
+      <div class="form-group">
+        <label>Port</label>
+        <input type="text" class="form-control" ng-model="imap.port" placeholder="{{imap.defaults.port}}" />
+      </div>
+      <div class="form-group">
+        <label>SSL/TLS</label>
+        <input type="checkbox" ng-model="imap.tls" />
+      </div>
+
+    </uib-tab>
+    <uib-tab index="1" heading="SMTP Server">
+
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" class="form-control" ng-model="smtp.username" placeholder="{{smtp.defaults.username}}" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" class="form-control" ng-model="smtp.password" />
+      </div>
+      <div class="form-group">
+        <label>SMTP Server</label>
+        <input type="text" class="form-control" ng-model="smtp.host" placeholder="{{smtp.defaults.host}}" />
+      </div>
+      <div class="form-group">
+        <label>SMTP Port</label>
+        <input type="text" class="form-control" ng-model="smtp.port" placeholder="{{smtp.defaults.port}}" />
+      </div>
+      <div class="form-group">
+        <div class="checkbox">
+          <label for="smtp_tls">
+            <input type="checkbox" id="smtp_tls" ng-model="smtp.tls" />
+            SSL/TLS
+          </label>
+        </div>
+      </div>
+
+    </uib-tab>
+    <uib-tab index="2" heading="Signatures">
+
+    </uib-tab>
+  </uib-tabset>
+
+</div>

@@ -1,0 +1,187 @@
+
+<div class="static-page">
+
+	<div class="col-md-4 col-md-offset-4">
+
+		<ol class="breadcrumb breadcrumb-steps">
+			<li ng-class="{active:step==0}">
+				<span class="breadcrumb-icon" ng-class="{'complete':step > 0}"><i class="fa fa-check-circle"></i></span> Account
+			</li>
+			<li ng-class="{active:step==1}">
+				<span class="breadcrumb-icon" ng-class="{'complete':step > 1}"><i class="fa fa-check-circle"></i></span> IMAP
+			</li>
+			<li ng-class="{active:step==2}">
+				<span class="breadcrumb-icon" ng-class="{'complete':step > 2}"><i class="fa fa-check-circle"></i></span> SMTP
+			</li>
+			<li ng-class="{active:step==3}">
+				<span class="breadcrumb-icon" ng-class="{'complete':step > 3}"><i class="fa fa-check-circle"></i></span> Complete
+			</li>
+		</ol>
+
+		<div class="panel-slide-wrap">
+			<div class="panel-slide angular-animate" ng-if="step==0" ng-class="direction">
+				<div class="panel panel-default">
+				  <div class="panel-body">
+		        <form ng-submit="nextStep()">
+		          <div class="form-group">
+		            <label>Email</label>
+		            <input type="email" class="form-control" ng-model="params.email" placeholder="joe@example.org" required autofocus />
+		          </div>
+		          <div class="form-group">
+		            <label>Password</label>
+		            <input type="password" class="form-control" ng-model="params.password" required />
+		          </div>
+
+		          <hr>
+		          <div class="form-group">
+								<button type="button" ui-sref="login" class="btn btn-default">Cancel</button>
+		            <button type="submit" class="btn btn-primary">Next</button>
+		          </div>
+		        </form>
+
+
+					</div>
+				</div>
+
+			</div><!-- end slide 1 -->
+
+			<div class="panel-slide angular-animate" ng-if="step==1" ng-class="direction">
+				<div class="panel panel-default">
+				  <div class="panel-body">
+						<h5>Incoming Mail <span class="badge">IMAP</span></h5>
+						<form ng-submit="testImap()">
+							<div class="form-group">
+								<label>Username</label>
+								<input type="text" class="form-control" ng-model="params.imap.username" placeholder="{{params.imap.defaults.username}}" />
+							</div>
+							<div class="form-group">
+								<label>Hostname</label>
+								<input type="text" class="form-control" ng-model="params.imap.host" placeholder="{{params.imap.defaults.host}}" />
+							</div>
+							<div class="form-group">
+								<label>Port</label>
+								<input type="number" class="form-control" ng-model="params.imap.port" placeholder="{{params.imap.defaults.port}}" />
+							</div>
+
+
+							<div class="form-group">
+								<label>Security</label>
+								<select class="form-control" ng-model="params.imap.security">
+									<option value="none">None</option>
+									<option value="starttls">STARTTLS</option>
+									<option value="ssl">SSL/TLS</option>
+								</select>
+							</div>
+							<div class="form-group">
+		            <button ng-disabled="isConnecting" type="button" ng-click="prevStep()" class="btn btn-default">Back</button>
+								<!-- <button ng-disabled="isConnecting" type="button" ng-click="testImap()" class="btn btn-default">Test Connection</button> -->
+								<button ng-disabled="isConnecting" type="submit" class="btn btn-primary">Next</button>
+		          </div>
+
+							<div>
+								<span ng-show="isConnecting">
+		              <i class="fa fa-spinner-third fa-spin"></i> Connecting...
+		            </span>
+		            <span ng-show="isConnected" class="text-success">
+		              <i class="fa fa-check"></i> Connected
+		            </span>
+							</div>
+		          <div ng-show="connectError" class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> <strong>Error:</strong> {{connectError}}</div>
+
+						</form>
+					</div>
+				</div>
+			</div> <!-- end slide 2 -->
+
+			<div class="panel-slide angular-animate" ng-if="step==2" ng-class="direction">
+				<div class="panel panel-default">
+
+				  <div class="panel-body">
+						<h5>Outgoing Mail <span class="badge">SMTP</span></h5>
+						<form ng-submit="testSmtp()">
+							<div class="form-group">
+								<label>Username</label>
+								<input type="text" class="form-control" ng-model="params.smtp.username" placeholder="{{params.smtp.defaults.username}}" />
+							</div>
+							<div class="form-group">
+								<label>Hostname</label>
+								<input type="text" class="form-control" ng-model="params.smtp.host" placeholder="{{params.smtp.defaults.host}}" />
+							</div>
+							<div class="form-group">
+								<label>Port</label>
+								<input type="text" class="form-control" ng-model="params.smtp.port" placeholder="{{params.smtp.defaults.port}}" />
+							</div>
+
+							<div class="form-group">
+								<label>Security</label>
+								<select class="form-control" ng-model="params.smtp.security">
+									<option value="none">None</option>
+									<option value="starttls">STARTTLS</option>
+									<option value="ssl">SSL/TLS</option>
+								</select>
+							</div>
+							<div class="form-group">
+		            <button type="button" ng-click="prevStep()" class="btn btn-default">Back</button>
+								<!-- <button type="button" ng-click="testSmtp()" class="btn btn-default">{{isConnecting?'Cancel':'Test Connection'}}</button> -->
+								<button type="submit" class="btn btn-primary">Create Account</button>
+		          </div>
+							<div>
+								<span ng-show="isConnecting">
+		              <i class="fa fa-spinner-third fa-spin"></i> Connecting...
+		            </span>
+		            <span ng-show="isConnected" class="text-success">
+		              <i class="fa fa-check"></i> Connected
+		            </span>
+							</div>
+		          <div ng-show="connectError" class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> <strong>Error:</strong> {{connectError}}</div>
+
+						</form>
+					</div>
+				</div>
+			</div> <!-- end slide 3 -->
+
+
+			<div class="panel-slide angular-animate" ng-if="step==3" ng-class="direction">
+				<div class="panel panel-default">
+
+				  <div class="panel-body text-center">
+						<h3><i class="fa fa-fw fa-spinner-third fa-spin"></i> Saving...</h3>
+						<!-- <ul class="list-group">
+							<li class="list-group-item">
+								<div class="list-group-item-icon">
+									<i ng-show="saveStage > 1" class="fa fa-fw fa-check text-success"></i>
+									<i ng-show="saveStage==1" class="fa fa-fw fa-spinner-third fa-spin"></i>
+								</div>
+								<h4 class="list-group-item-heading">IMAP Server</h4>
+								<p class="list-group-item-text">{{saveStage==1?'Testing Server...':'OK'}}</p>
+							</li>
+							<li class="list-group-item">
+								<div class="list-group-item-icon">
+									<i ng-show="saveStage > 2" class="fa fa-fw fa-check text-success"></i>
+									<i ng-show="saveStage==2" class="fa fa-fw fa-spinner-third fa-spin"></i>
+								</div>
+								<h4 class="list-group-item-heading">SMTP Server</h4>
+								<p class="list-group-item-text">{{saveStage==2?'Testing Server...':'OK'}}</p>
+							</li>
+							<li class="list-group-item">
+								<div class="list-group-item-icon">
+									<i ng-show="saveStage > 3" class="fa fa-fw fa-check text-success"></i>
+									<i ng-show="saveStage==3" class="fa fa-fw fa-spinner-third fa-spin"></i>
+								</div>
+								<h4 class="list-group-item-heading">Setting up Account</h4>
+								<p class="list-group-item-text">{{saveStage==3?'Loading':'OK'}}</p>
+							</li>
+						</ul> -->
+						<!-- <pre>{{params}}</pre> -->
+						<!-- <pre>{{saveStage}}</pre> -->
+					</div>
+				</div>
+			</div> <!-- end slide 4 -->
+
+
+		</div>
+
+	</div>
+
+
+</div>

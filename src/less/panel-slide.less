@@ -1,0 +1,65 @@
+.panel-slide-wrap {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+
+@slide-size: 20%;
+@slide-size-reverse: -1 * @slide-size;
+@slide-blur: 10px;
+@slide-transition-duration: 400ms;
+.panel-slide {
+  width: 100%;
+  position: absolute;
+  top: 0;
+
+  &.ng-enter {
+
+    opacity: 0;
+    filter: blur(@slide-blur);
+    transition: @slide-transition-duration ease-in-out all;
+
+    &.step-next {
+      transform: translateX(@slide-size);
+    }
+    &.step-prev {
+      transform: translateX(@slide-size-reverse);
+    }
+  }
+
+  &.ng-enter.ng-enter-active {
+    opacity:1;
+    filter: blur(0px);
+    transform: translateX(0);
+  }
+
+  &.ng-leave {
+    // animation: slide_out 0.5s linear;
+    transition: @slide-transition-duration ease-in-out all;
+    opacity:1;
+    filter: blur(0px);
+    transform: translateX(0);
+  }
+
+  &.ng-leave.ng-leave-active {
+    opacity:0;
+    filter: blur(@slide-blur);
+    // transform: translateX(-10%);
+    &.step-next {
+      transform: translateX(@slide-size-reverse);
+    }
+    &.step-prev {
+      transform: translateX(@slide-size);
+    }
+  }
+
+}
+//
+// @keyframes slide_in {
+//   from { transform: translateX(20%); opacity: 0; }
+//   to { transform: translateX(0); opacity: 1; }
+// }
+// @keyframes slide_out {
+//   from { transform: translateX(0%); opacity: 1; }
+//   to { transform: translateX(-20); opacity: 0; }
+// }
