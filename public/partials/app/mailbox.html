@@ -3,11 +3,15 @@
     <div ng-if="messages.length==0" class="list-group-empty">
       No messages exist
     </div>
-    <a class="list-group-item" ng-repeat="message in messages | orderBy:'-seq'" ui-sref-active="active" ui-sref=".message({message:message.seq})">
+    <a class="list-group-item"
+       title="{{message.attrs.flags}}"
+       ng-class="messageClass(message.attrs.flags)"
+       ng-repeat="message in messages | orderBy:'-seq'"
+       ui-sref-active="active" ng-click="setSeen(message)" ui-sref=".message({message:message.seq})">
       <span class="list-group-item-text small text-muted pull-right">{{message.headers.date[0]|maildate}}</span>
-      <h5 class="list-group-item-heading">{{message.headers.from[0]}}</h5>
+      <h5 class="list-group-item-heading">{{message.headers.from[0]|emailParse}}</h5>
       <p class="list-group-item-text">
-        {{message.headers.subject[0]}}
+        {{message.headers.subject[0].length > 0 ? message.headers.subject[0] : '(No Subject)'}}
       </p>
     </a>
   </div>

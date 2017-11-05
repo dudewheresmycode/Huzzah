@@ -4474,8 +4474,8 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
   }
 }
 .navbar-default {
-  background-color: #fff;
-  border-color: rgba(0, 0, 0, 0.1);
+  background-color: transparent;
+  border-color: transparent;
 }
 .navbar-default .navbar-brand {
   color: #777;
@@ -4500,7 +4500,7 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
 .navbar-default .navbar-nav > .active > a:hover,
 .navbar-default .navbar-nav > .active > a:focus {
   color: #555;
-  background-color: #eeeeee;
+  background-color: rgba(0, 0, 0, 0);
 }
 .navbar-default .navbar-nav > .disabled > a,
 .navbar-default .navbar-nav > .disabled > a:hover,
@@ -4520,12 +4520,12 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
 }
 .navbar-default .navbar-collapse,
 .navbar-default .navbar-form {
-  border-color: rgba(0, 0, 0, 0.1);
+  border-color: transparent;
 }
 .navbar-default .navbar-nav > .open > a,
 .navbar-default .navbar-nav > .open > a:hover,
 .navbar-default .navbar-nav > .open > a:focus {
-  background-color: #eeeeee;
+  background-color: rgba(0, 0, 0, 0);
   color: #555;
 }
 @media (max-width: 767px) {
@@ -4541,7 +4541,7 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
   .navbar-default .navbar-nav .open .dropdown-menu > .active > a:hover,
   .navbar-default .navbar-nav .open .dropdown-menu > .active > a:focus {
     color: #555;
-    background-color: #eeeeee;
+    background-color: rgba(0, 0, 0, 0);
   }
   .navbar-default .navbar-nav .open .dropdown-menu > .disabled > a,
   .navbar-default .navbar-nav .open .dropdown-menu > .disabled > a:hover,
@@ -7111,6 +7111,11 @@ body {
 .breadcrumb.breadcrumb-steps > .active .breadcrumb-icon {
   color: #2274A5;
 }
+.nav-text {
+  margin: 0;
+  padding: 10px 15px;
+  float: left;
+}
 .navbar-default .navbar-brand {
   font-family: 'Poppins', serif;
   color: #434343;
@@ -7179,6 +7184,7 @@ body {
 }
 .app-grid .app-grid-col.app-grid-mailbox .app-grid-mailbox-message .app-grid-mailbox-message-actions {
   flex: 0 0 auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 .app-grid .app-grid-col.app-grid-mailbox .app-grid-mailbox-message .app-grid-mailbox-message-content {
@@ -7214,6 +7220,16 @@ body {
 .list-group.mail-group .list-group-item {
   border-left: 0;
   border-right: 0;
+  border-left: 5px solid #2274A5;
+}
+.list-group.mail-group .list-group-item.active {
+  background-color: #e1e1e1;
+  border-color: transparent;
+  color: #101010;
+}
+.list-group.mail-group .list-group-item.active .list-group-item-heading,
+.list-group.mail-group .list-group-item.active .list-group-item-text {
+  color: #101010;
 }
 .list-group.mail-group .list-group-item:last-child {
   border-radius: 0px;
@@ -7231,6 +7247,16 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+.list-group.mail-group .list-group-item.mailbox-seen:not(.active) {
+  border-left-color: transparent;
+  background-color: #ffffff;
+}
+.list-group.mail-group .list-group-item.mailbox-seen:not(.active) .list-group-item-heading {
+  font-weight: normal;
+}
+.list-group.mail-group .list-group-item.mailbox-seen:not(.active) .list-group-item-text {
+  font-weight: normal;
 }
 .list-group > .list-group-empty {
   list-style: none;
@@ -8638,11 +8664,19 @@ body {
   border: 1px solid #ccc;
 }
 .navbar-compose-button {
-  border-right: 1px solid rgba(0, 0, 0, 0.1);
   padding-right: 15px;
   padding-left: 15px;
   padding-top: 8px;
   padding-bottom: 8px;
+}
+.send-mail {
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.send-mail > div {
+  margin-top: 10vh;
 }
 .compose-mail {
   border-left: 1px solid rgba(0, 0, 0, 0.1);
@@ -8650,11 +8684,26 @@ body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  opacity: 1;
+  transform: scale(1);
+}
+.compose-mail.ng-hide {
+  opacity: 0;
+  transform: scale(0.8);
+}
+.compose-mail.ng-hide-add {
+  position: absolute;
+  transition: 250ms ease-in all;
+}
+.compose-mail.ng-hide-remove {
+  position: absolute;
+  transition: 250ms ease-out all;
 }
 .compose-mail .compose-actions {
   flex: 0 1 auto;
   margin-bottom: 20px;
   display: block;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   background-color: #fff;
 }

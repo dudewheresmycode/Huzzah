@@ -4,24 +4,56 @@
 @import (less) "../../node_modules/quill/dist/quill.snow.css";
 
 .navbar-compose-button {
-  border-right: 1px solid @default-border-color;
+  // border-right: 1px solid @default-border-color;
   padding-right: 15px;
   padding-left: 15px;
   padding-top: 8px;
   padding-bottom: 8px;
 }
-
+.send-mail {
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  > div {
+    margin-top: 10vh;
+  }
+}
 .compose-mail {
+
   border-left: 1px solid @default-border-color;
   width: 100%;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+
+  opacity: 1;
+  transform: scale(1);
+
+  &.ng-hide {
+    opacity: 0;
+    // transform: translateY(100px);
+    transform: scale(0.8);
+  }
+  &.ng-hide-add {
+    position: absolute;
+    transition: 250ms ease-in all;
+    // transform: translateY(0px);
+      // opacity: 1;
+  }
+  &.ng-hide-remove {
+    position: absolute;
+    transition: 250ms ease-out all;
+    // transform: translateY(100px);
+    // opacity: 0;
+  }
+
   .compose-actions {
     flex: 0 1 auto;
     margin-bottom: 20px;
     display: block;
     // border-left: 1px solid @default-border-color;
+    border-top: 1px solid @default-border-color;
     border-bottom: 1px solid @default-border-color;
     background-color: #fff;
     // padding: 15px;

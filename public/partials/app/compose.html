@@ -1,6 +1,44 @@
-<div class="compose-mail">
+<div class="send-mail" ng-show="progress.stage > 1">
+  <!-- <div class="row"> -->
+    <div class="col-sm-4 col-sm-offset-4">
+      <!-- <div class="panel"> -->
+        <!-- <div class="panel-body"> -->
+
+
+          <div class="progress">
+            <div class="progress-bar" role="progressbar" aria-valuenow="{{progress.percent}}" aria-valuemin="0" aria-valuemax="100" ng-style="{width:progress.percent+'%'};" ng-class="{'progress-bar-success':progress.percent==100}">
+              <span class="sr-only">{{progress.percent}}% Complete</span>
+            </div>
+          </div>
+          <p>
+            <span ng-show="progress.percent<100">Sending message...</span>
+            <span class="text-success" ng-show="progress.percent==100"><i class="fa fa-check"></i> Message sent!</span>
+          </p>
+          <!-- <pre>{{progress|json}}</pre> -->
+          <!-- <p>
+            <a ng-click="progress.stage=1">Back</a>
+          </p> -->
+        <!-- </div> -->
+      <!-- </div> -->
+
+    </div>
+  <!-- </div> -->
+</div>
+<div class="compose-mail angular-animate" ng-hide="progress.stage > 1">
 
   <div class="compose-actions">
+    <p class="nav-text text-muted" ng-class="progress.error?'text-danger':'text-muted'">
+
+      <!-- <i class="fa fa-spinner-third fa-spin"></i> -->
+      <span ng-if="progress.saving"><i class="fa fa-spinner-third fa-spin"></i> Saving Draft</span>
+      <span ng-if="progress.last_saved">Last saved {{progress.last_saved|maildate}}</span>
+      <span ng-if="progress.error"><i class="fa fa-exclamation-circle"></i> {{progress.error}}</span>
+    </p>
+    <!-- <ul class="nav nav-pills pull-left">
+      <li>
+        Last saved {{Date.now()}}
+      </li>
+    </ul> -->
     <!-- <button type="submit" class="btn btn-default actions-left"><i class="fal fa-paperclip"></i> Attach Files</button>
 
     <button type="submit" ng-click="send()" class="btn btn-primary actions-right"><i class="fal fa-paper-plane"></i> Send</button>
@@ -8,9 +46,11 @@
 
     <ul class="nav nav-pills pull-right">
       <li role="presentation" tooltip-placement="bottom" uib-tooltip="Attach Files" tooltip-append-to-body="true"><a href attach-file ng-model="params.attachments"><i class="fal fa-fw fa-paperclip"></i></a></li>
-      <li role="presentation" tooltip-placement="bottom" uib-tooltip="Save Draft" tooltip-append-to-body="true"><a href="#"><i class="fal fa-fw fa-file-edit"></i></a></li>
+      <li role="presentation" tooltip-placement="bottom" uib-tooltip="Save Draft" tooltip-append-to-body="true">
+        <a href ng-click="save()"><i class="fal fa-fw fa-file-edit"></i> Save Draft</a>
+      </li>
       <li role="presentation" tooltip-placement="bottom" uib-tooltip="Send" tooltip-append-to-body="true">
-        <a ng-click="send()" href class="text-primary"><i class="fal fa-fw fa-paper-plane"></i></a>
+        <a ng-click="send()" href class="text-primary"><i class="fal fa-fw fa-paper-plane"></i> Send</a>
       </li>
       <!-- <li role="presentation"><a href="#"><i class="fal fa-fw fa-ellipsis-h"></i></a></li> -->
     </ul>

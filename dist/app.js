@@ -28263,10 +28263,1083 @@ function numberIsNaN (obj) {
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":82,"ieee754":100}],98:[function(require,module,exports){
+},{"base64-js":82,"ieee754":101}],98:[function(require,module,exports){
+
+// email-addresses.js - RFC 5322 email address parser
+// v 3.0.1
+//
+// http://tools.ietf.org/html/rfc5322
+//
+// This library does not validate email addresses.
+// emailAddresses attempts to parse addresses using the (fairly liberal)
+// grammar specified in RFC 5322.
+//
+// email-addresses returns {
+//     ast: <an abstract syntax tree based on rfc5322>,
+//     addresses: [{
+//            node: <node in ast for this address>,
+//            name: <display-name>,
+//            address: <addr-spec>,
+//            local: <local-part>,
+//            domain: <domain>
+//         }, ...]
+// }
+//
+// emailAddresses.parseOneAddress and emailAddresses.parseAddressList
+// work as you might expect. Try it out.
+//
+// Many thanks to Dominic Sayers and his documentation on the is_email function,
+// http://code.google.com/p/isemail/ , which helped greatly in writing this parser.
+
+(function (global) {
+"use strict";
+
+function parse5322(opts) {
+
+    // tokenizing functions
+
+    function inStr() { return pos < len; }
+    function curTok() { return parseString[pos]; }
+    function getPos() { return pos; }
+    function setPos(i) { pos = i; }
+    function nextTok() { pos += 1; }
+    function initialize() {
+        pos = 0;
+        len = parseString.length;
+    }
+
+    // parser helper functions
+
+    function o(name, value) {
+        return {
+            name: name,
+            tokens: value || "",
+            semantic: value || "",
+            children: []
+        };
+    }
+
+    function wrap(name, ast) {
+        var n;
+        if (ast === null) { return null; }
+        n = o(name);
+        n.tokens = ast.tokens;
+        n.semantic = ast.semantic;
+        n.children.push(ast);
+        return n;
+    }
+
+    function add(parent, child) {
+        if (child !== null) {
+            parent.tokens += child.tokens;
+            parent.semantic += child.semantic;
+        }
+        parent.children.push(child);
+        return parent;
+    }
+
+    function compareToken(fxnCompare) {
+        var tok;
+        if (!inStr()) { return null; }
+        tok = curTok();
+        if (fxnCompare(tok)) {
+            nextTok();
+            return o('token', tok);
+        }
+        return null;
+    }
+
+    function literal(lit) {
+        return function literalFunc() {
+            return wrap('literal', compareToken(function (tok) {
+                return tok === lit;
+            }));
+        };
+    }
+
+    function and() {
+        var args = arguments;
+        return function andFunc() {
+            var i, s, result, start;
+            start = getPos();
+            s = o('and');
+            for (i = 0; i < args.length; i += 1) {
+                result = args[i]();
+                if (result === null) {
+                    setPos(start);
+                    return null;
+                }
+                add(s, result);
+            }
+            return s;
+        };
+    }
+
+    function or() {
+        var args = arguments;
+        return function orFunc() {
+            var i, result, start;
+            start = getPos();
+            for (i = 0; i < args.length; i += 1) {
+                result = args[i]();
+                if (result !== null) {
+                    return result;
+                }
+                setPos(start);
+            }
+            return null;
+        };
+    }
+
+    function opt(prod) {
+        return function optFunc() {
+            var result, start;
+            start = getPos();
+            result = prod();
+            if (result !== null) {
+                return result;
+            }
+            else {
+                setPos(start);
+                return o('opt');
+            }
+        };
+    }
+
+    function invis(prod) {
+        return function invisFunc() {
+            var result = prod();
+            if (result !== null) {
+                result.semantic = "";
+            }
+            return result;
+        };
+    }
+
+    function colwsp(prod) {
+        return function collapseSemanticWhitespace() {
+            var result = prod();
+            if (result !== null && result.semantic.length > 0) {
+                result.semantic = " ";
+            }
+            return result;
+        };
+    }
+
+    function star(prod, minimum) {
+        return function starFunc() {
+            var s, result, count, start, min;
+            start = getPos();
+            s = o('star');
+            count = 0;
+            min = minimum === undefined ? 0 : minimum;
+            while ((result = prod()) !== null) {
+                count = count + 1;
+                add(s, result);
+            }
+            if (count >= min) {
+                return s;
+            }
+            else {
+                setPos(start);
+                return null;
+            }
+        };
+    }
+
+    // One expects names to get normalized like this:
+    // "  First  Last " -> "First Last"
+    // "First Last" -> "First Last"
+    // "First   Last" -> "First Last"
+    function collapseWhitespace(s) {
+        return s.replace(/([ \t]|\r\n)+/g, ' ').replace(/^\s*/, '').replace(/\s*$/, '');
+    }
+
+    // UTF-8 pseudo-production (RFC 6532)
+    // RFC 6532 extends RFC 5322 productions to include UTF-8
+    // using the following productions:
+    // UTF8-non-ascii  =   UTF8-2 / UTF8-3 / UTF8-4
+    // UTF8-2          =   <Defined in Section 4 of RFC3629>
+    // UTF8-3          =   <Defined in Section 4 of RFC3629>
+    // UTF8-4          =   <Defined in Section 4 of RFC3629>
+    //
+    // For reference, the extended RFC 5322 productions are:
+    // VCHAR   =/  UTF8-non-ascii
+    // ctext   =/  UTF8-non-ascii
+    // atext   =/  UTF8-non-ascii
+    // qtext   =/  UTF8-non-ascii
+    // dtext   =/  UTF8-non-ascii
+    function isUTF8NonAscii(tok) {
+        // In JavaScript, we just deal directly with Unicode code points,
+        // so we aren't checking individual bytes for UTF-8 encoding.
+        // Just check that the character is non-ascii.
+        return tok.charCodeAt(0) >= 128;
+    }
+
+
+    // common productions (RFC 5234)
+    // http://tools.ietf.org/html/rfc5234
+    // B.1. Core Rules
+
+    // CR             =  %x0D
+    //                         ; carriage return
+    function cr() { return wrap('cr', literal('\r')()); }
+
+    // CRLF           =  CR LF
+    //                         ; Internet standard newline
+    function crlf() { return wrap('crlf', and(cr, lf)()); }
+
+    // DQUOTE         =  %x22
+    //                         ; " (Double Quote)
+    function dquote() { return wrap('dquote', literal('"')()); }
+
+    // HTAB           =  %x09
+    //                         ; horizontal tab
+    function htab() { return wrap('htab', literal('\t')()); }
+
+    // LF             =  %x0A
+    //                         ; linefeed
+    function lf() { return wrap('lf', literal('\n')()); }
+
+    // SP             =  %x20
+    function sp() { return wrap('sp', literal(' ')()); }
+
+    // VCHAR          =  %x21-7E
+    //                         ; visible (printing) characters
+    function vchar() {
+        return wrap('vchar', compareToken(function vcharFunc(tok) {
+            var code = tok.charCodeAt(0);
+            var accept = (0x21 <= code && code <= 0x7E);
+            if (opts.rfc6532) {
+                accept = accept || isUTF8NonAscii(tok);
+            }
+            return accept;
+        }));
+    }
+
+    // WSP            =  SP / HTAB
+    //                         ; white space
+    function wsp() { return wrap('wsp', or(sp, htab)()); }
+
+
+    // email productions (RFC 5322)
+    // http://tools.ietf.org/html/rfc5322
+    // 3.2.1. Quoted characters
+
+    // quoted-pair     =   ("\" (VCHAR / WSP)) / obs-qp
+    function quotedPair() {
+        var qp = wrap('quoted-pair',
+        or(
+            and(literal('\\'), or(vchar, wsp)),
+            obsQP
+        )());
+        if (qp === null) { return null; }
+        // a quoted pair will be two characters, and the "\" character
+        // should be semantically "invisible" (RFC 5322 3.2.1)
+        qp.semantic = qp.semantic[1];
+        return qp;
+    }
+
+    // 3.2.2. Folding White Space and Comments
+
+    // FWS             =   ([*WSP CRLF] 1*WSP) /  obs-FWS
+    function fws() {
+        return wrap('fws', or(
+            obsFws,
+            and(
+                opt(and(
+                    star(wsp),
+                    invis(crlf)
+                   )),
+                star(wsp, 1)
+            )
+        )());
+    }
+
+    // ctext           =   %d33-39 /          ; Printable US-ASCII
+    //                     %d42-91 /          ;  characters not including
+    //                     %d93-126 /         ;  "(", ")", or "\"
+    //                     obs-ctext
+    function ctext() {
+        return wrap('ctext', or(
+            function ctextFunc1() {
+                return compareToken(function ctextFunc2(tok) {
+                    var code = tok.charCodeAt(0);
+                    var accept =
+                        (33 <= code && code <= 39) ||
+                        (42 <= code && code <= 91) ||
+                        (93 <= code && code <= 126);
+                    if (opts.rfc6532) {
+                        accept = accept || isUTF8NonAscii(tok);
+                    }
+                    return accept;
+                });
+            },
+            obsCtext
+        )());
+    }
+
+    // ccontent        =   ctext / quoted-pair / comment
+    function ccontent() {
+        return wrap('ccontent', or(ctext, quotedPair, comment)());
+    }
+
+    // comment         =   "(" *([FWS] ccontent) [FWS] ")"
+    function comment() {
+        return wrap('comment', and(
+            literal('('),
+            star(and(opt(fws), ccontent)),
+            opt(fws),
+            literal(')')
+        )());
+    }
+
+    // CFWS            =   (1*([FWS] comment) [FWS]) / FWS
+    function cfws() {
+        return wrap('cfws', or(
+            and(
+                star(
+                    and(opt(fws), comment),
+                    1
+                ),
+                opt(fws)
+            ),
+            fws
+        )());
+    }
+
+    // 3.2.3. Atom
+
+    //atext           =   ALPHA / DIGIT /    ; Printable US-ASCII
+    //                       "!" / "#" /        ;  characters not including
+    //                       "$" / "%" /        ;  specials.  Used for atoms.
+    //                       "&" / "'" /
+    //                       "*" / "+" /
+    //                       "-" / "/" /
+    //                       "=" / "?" /
+    //                       "^" / "_" /
+    //                       "`" / "{" /
+    //                       "|" / "}" /
+    //                       "~"
+    function atext() {
+        return wrap('atext', compareToken(function atextFunc(tok) {
+            var accept =
+                ('a' <= tok && tok <= 'z') ||
+                ('A' <= tok && tok <= 'Z') ||
+                ('0' <= tok && tok <= '9') ||
+                (['!', '#', '$', '%', '&', '\'', '*', '+', '-', '/',
+                  '=', '?', '^', '_', '`', '{', '|', '}', '~'].indexOf(tok) >= 0);
+            if (opts.rfc6532) {
+                accept = accept || isUTF8NonAscii(tok);
+            }
+            return accept;
+        }));
+    }
+
+    // atom            =   [CFWS] 1*atext [CFWS]
+    function atom() {
+        return wrap('atom', and(colwsp(opt(cfws)), star(atext, 1), colwsp(opt(cfws)))());
+    }
+
+    // dot-atom-text   =   1*atext *("." 1*atext)
+    function dotAtomText() {
+        var s, maybeText;
+        s = wrap('dot-atom-text', star(atext, 1)());
+        if (s === null) { return s; }
+        maybeText = star(and(literal('.'), star(atext, 1)))();
+        if (maybeText !== null) {
+            add(s, maybeText);
+        }
+        return s;
+    }
+
+    // dot-atom        =   [CFWS] dot-atom-text [CFWS]
+    function dotAtom() {
+        return wrap('dot-atom', and(invis(opt(cfws)), dotAtomText, invis(opt(cfws)))());
+    }
+
+    // 3.2.4. Quoted Strings
+
+    //  qtext           =   %d33 /             ; Printable US-ASCII
+    //                      %d35-91 /          ;  characters not including
+    //                      %d93-126 /         ;  "\" or the quote character
+    //                      obs-qtext
+    function qtext() {
+        return wrap('qtext', or(
+            function qtextFunc1() {
+                return compareToken(function qtextFunc2(tok) {
+                    var code = tok.charCodeAt(0);
+                    var accept =
+                        (33 === code) ||
+                        (35 <= code && code <= 91) ||
+                        (93 <= code && code <= 126);
+                    if (opts.rfc6532) {
+                        accept = accept || isUTF8NonAscii(tok);
+                    }
+                    return accept;
+                });
+            },
+            obsQtext
+        )());
+    }
+
+    // qcontent        =   qtext / quoted-pair
+    function qcontent() {
+        return wrap('qcontent', or(qtext, quotedPair)());
+    }
+
+    //  quoted-string   =   [CFWS]
+    //                      DQUOTE *([FWS] qcontent) [FWS] DQUOTE
+    //                      [CFWS]
+    function quotedString() {
+        return wrap('quoted-string', and(
+            invis(opt(cfws)),
+            invis(dquote), star(and(opt(colwsp(fws)), qcontent)), opt(invis(fws)), invis(dquote),
+            invis(opt(cfws))
+        )());
+    }
+
+    // 3.2.5 Miscellaneous Tokens
+
+    // word            =   atom / quoted-string
+    function word() {
+        return wrap('word', or(atom, quotedString)());
+    }
+
+    // phrase          =   1*word / obs-phrase
+    function phrase() {
+        return wrap('phrase', or(obsPhrase, star(word, 1))());
+    }
+
+    // 3.4. Address Specification
+    //   address         =   mailbox / group
+    function address() {
+        return wrap('address', or(mailbox, group)());
+    }
+
+    //   mailbox         =   name-addr / addr-spec
+    function mailbox() {
+        return wrap('mailbox', or(nameAddr, addrSpec)());
+    }
+
+    //   name-addr       =   [display-name] angle-addr
+    function nameAddr() {
+        return wrap('name-addr', and(opt(displayName), angleAddr)());
+    }
+
+    //   angle-addr      =   [CFWS] "<" addr-spec ">" [CFWS] /
+    //                       obs-angle-addr
+    function angleAddr() {
+        return wrap('angle-addr', or(
+            and(
+                invis(opt(cfws)),
+                literal('<'),
+                addrSpec,
+                literal('>'),
+                invis(opt(cfws))
+            ),
+            obsAngleAddr
+        )());
+    }
+
+    //   group           =   display-name ":" [group-list] ";" [CFWS]
+    function group() {
+        return wrap('group', and(
+            displayName,
+            literal(':'),
+            opt(groupList),
+            literal(';'),
+            invis(opt(cfws))
+        )());
+    }
+
+    //   display-name    =   phrase
+    function displayName() {
+        return wrap('display-name', function phraseFixedSemantic() {
+            var result = phrase();
+            if (result !== null) {
+                result.semantic = collapseWhitespace(result.semantic);
+            }
+            return result;
+        }());
+    }
+
+    //   mailbox-list    =   (mailbox *("," mailbox)) / obs-mbox-list
+    function mailboxList() {
+        return wrap('mailbox-list', or(
+            and(
+                mailbox,
+                star(and(literal(','), mailbox))
+            ),
+            obsMboxList
+        )());
+    }
+
+    //   address-list    =   (address *("," address)) / obs-addr-list
+    function addressList() {
+        return wrap('address-list', or(
+            and(
+                address,
+                star(and(literal(','), address))
+            ),
+            obsAddrList
+        )());
+    }
+
+    //   group-list      =   mailbox-list / CFWS / obs-group-list
+    function groupList() {
+        return wrap('group-list', or(
+            mailboxList,
+            invis(cfws),
+            obsGroupList
+        )());
+    }
+
+    // 3.4.1 Addr-Spec Specification
+
+    // local-part      =   dot-atom / quoted-string / obs-local-part
+    function localPart() {
+        // note: quoted-string, dotAtom are proper subsets of obs-local-part
+        // so we really just have to look for obsLocalPart, if we don't care about the exact parse tree
+        return wrap('local-part', or(obsLocalPart, dotAtom, quotedString)());
+    }
+
+    //  dtext           =   %d33-90 /          ; Printable US-ASCII
+    //                      %d94-126 /         ;  characters not including
+    //                      obs-dtext          ;  "[", "]", or "\"
+    function dtext() {
+        return wrap('dtext', or(
+            function dtextFunc1() {
+                return compareToken(function dtextFunc2(tok) {
+                    var code = tok.charCodeAt(0);
+                    var accept =
+                        (33 <= code && code <= 90) ||
+                        (94 <= code && code <= 126);
+                    if (opts.rfc6532) {
+                        accept = accept || isUTF8NonAscii(tok);
+                    }
+                    return accept;
+                });
+            },
+            obsDtext
+            )()
+        );
+    }
+
+    // domain-literal  =   [CFWS] "[" *([FWS] dtext) [FWS] "]" [CFWS]
+    function domainLiteral() {
+        return wrap('domain-literal', and(
+            invis(opt(cfws)),
+            literal('['),
+            star(and(opt(fws), dtext)),
+            opt(fws),
+            literal(']'),
+            invis(opt(cfws))
+        )());
+    }
+
+    // domain          =   dot-atom / domain-literal / obs-domain
+    function domain() {
+        return wrap('domain', function domainCheckTLD() {
+            var result = or(obsDomain, dotAtom, domainLiteral)();
+            if (opts.rejectTLD) {
+                if (result.semantic.indexOf('.') < 0) {
+                    return null;
+                }
+            }
+            // strip all whitespace from domains
+            if (result) {
+                result.semantic = result.semantic.replace(/\s+/g, '');
+            }
+            return result;
+        }());
+    }
+
+    // addr-spec       =   local-part "@" domain
+    function addrSpec() {
+        return wrap('addr-spec', and(
+            localPart, literal('@'), domain
+        )());
+    }
+
+    // 3.6.2 Originator Fields
+    // Below we only parse the field body, not the name of the field
+    // like "From:", "Sender:", or "Reply-To:". Other libraries that
+    // parse email headers can parse those and defer to these productions
+    // for the "RFC 5322" part.
+
+    // RFC 6854 2.1. Replacement of RFC 5322, Section 3.6.2. Originator Fields
+    // from = "From:" (mailbox-list / address-list) CRLF
+    function fromSpec() {
+        return wrap('from', or(
+            mailboxList,
+            addressList
+        )());
+    }
+
+    // RFC 6854 2.1. Replacement of RFC 5322, Section 3.6.2. Originator Fields
+    // sender = "Sender:" (mailbox / address) CRLF
+    function senderSpec() {
+        return wrap('sender', or(
+            mailbox,
+            address
+        )());
+    }
+
+    // RFC 6854 2.1. Replacement of RFC 5322, Section 3.6.2. Originator Fields
+    // reply-to = "Reply-To:" address-list CRLF
+    function replyToSpec() {
+        return wrap('reply-to', addressList());
+    }
+
+    // 4.1. Miscellaneous Obsolete Tokens
+
+    //  obs-NO-WS-CTL   =   %d1-8 /            ; US-ASCII control
+    //                      %d11 /             ;  characters that do not
+    //                      %d12 /             ;  include the carriage
+    //                      %d14-31 /          ;  return, line feed, and
+    //                      %d127              ;  white space characters
+    function obsNoWsCtl() {
+        return opts.strict ? null : wrap('obs-NO-WS-CTL', compareToken(function (tok) {
+            var code = tok.charCodeAt(0);
+            return ((1 <= code && code <= 8) ||
+                    (11 === code || 12 === code) ||
+                    (14 <= code && code <= 31) ||
+                    (127 === code));
+        }));
+    }
+
+    // obs-ctext       =   obs-NO-WS-CTL
+    function obsCtext() { return opts.strict ? null : wrap('obs-ctext', obsNoWsCtl()); }
+
+    // obs-qtext       =   obs-NO-WS-CTL
+    function obsQtext() { return opts.strict ? null : wrap('obs-qtext', obsNoWsCtl()); }
+
+    // obs-qp          =   "\" (%d0 / obs-NO-WS-CTL / LF / CR)
+    function obsQP() {
+        return opts.strict ? null : wrap('obs-qp', and(
+            literal('\\'),
+            or(literal('\0'), obsNoWsCtl, lf, cr)
+        )());
+    }
+
+    // obs-phrase      =   word *(word / "." / CFWS)
+    function obsPhrase() {
+        return opts.strict ? null : wrap('obs-phrase', and(
+            word,
+            star(or(word, literal('.'), colwsp(cfws)))
+        )());
+    }
+
+    // 4.2. Obsolete Folding White Space
+
+    // NOTE: read the errata http://www.rfc-editor.org/errata_search.php?rfc=5322&eid=1908
+    // obs-FWS         =   1*([CRLF] WSP)
+    function obsFws() {
+        return opts.strict ? null : wrap('obs-FWS', star(
+            and(invis(opt(crlf)), wsp),
+            1
+        )());
+    }
+
+    // 4.4. Obsolete Addressing
+
+    // obs-angle-addr  =   [CFWS] "<" obs-route addr-spec ">" [CFWS]
+    function obsAngleAddr() {
+        return opts.strict ? null : wrap('obs-angle-addr', and(
+            invis(opt(cfws)),
+            literal('<'),
+            obsRoute,
+            addrSpec,
+            literal('>'),
+            invis(opt(cfws))
+        )());
+    }
+
+    // obs-route       =   obs-domain-list ":"
+    function obsRoute() {
+        return opts.strict ? null : wrap('obs-route', and(
+            obsDomainList,
+            literal(':')
+        )());
+    }
+
+    //   obs-domain-list =   *(CFWS / ",") "@" domain
+    //                       *("," [CFWS] ["@" domain])
+    function obsDomainList() {
+        return opts.strict ? null : wrap('obs-domain-list', and(
+            star(or(invis(cfws), literal(','))),
+            literal('@'),
+            domain,
+            star(and(
+                literal(','),
+                invis(opt(cfws)),
+                opt(and(literal('@'), domain))
+            ))
+        )());
+    }
+
+    // obs-mbox-list   =   *([CFWS] ",") mailbox *("," [mailbox / CFWS])
+    function obsMboxList() {
+        return opts.strict ? null : wrap('obs-mbox-list', and(
+            star(and(
+                invis(opt(cfws)),
+                literal(',')
+            )),
+            mailbox,
+            star(and(
+                literal(','),
+                opt(and(
+                    mailbox,
+                    invis(cfws)
+                ))
+            ))
+        )());
+    }
+
+    // obs-addr-list   =   *([CFWS] ",") address *("," [address / CFWS])
+    function obsAddrList() {
+        return opts.strict ? null : wrap('obs-addr-list', and(
+            star(and(
+                invis(opt(cfws)),
+                literal(',')
+            )),
+            address,
+            star(and(
+                literal(','),
+                opt(and(
+                    address,
+                    invis(cfws)
+                ))
+            ))
+        )());
+    }
+
+    // obs-group-list  =   1*([CFWS] ",") [CFWS]
+    function obsGroupList() {
+        return opts.strict ? null : wrap('obs-group-list', and(
+            star(and(
+                invis(opt(cfws)),
+                literal(',')
+            ), 1),
+            invis(opt(cfws))
+        )());
+    }
+
+    // obs-local-part = word *("." word)
+    function obsLocalPart() {
+        return opts.strict ? null : wrap('obs-local-part', and(word, star(and(literal('.'), word)))());
+    }
+
+    // obs-domain       = atom *("." atom)
+    function obsDomain() {
+        return opts.strict ? null : wrap('obs-domain', and(atom, star(and(literal('.'), atom)))());
+    }
+
+    // obs-dtext       =   obs-NO-WS-CTL / quoted-pair
+    function obsDtext() {
+        return opts.strict ? null : wrap('obs-dtext', or(obsNoWsCtl, quotedPair)());
+    }
+
+    /////////////////////////////////////////////////////
+
+    // ast analysis
+
+    function findNode(name, root) {
+        var i, stack, node;
+        if (root === null || root === undefined) { return null; }
+        stack = [root];
+        while (stack.length > 0) {
+            node = stack.pop();
+            if (node.name === name) {
+                return node;
+            }
+            for (i = node.children.length - 1; i >= 0; i -= 1) {
+                stack.push(node.children[i]);
+            }
+        }
+        return null;
+    }
+
+    function findAllNodes(name, root) {
+        var i, stack, node, result;
+        if (root === null || root === undefined) { return null; }
+        stack = [root];
+        result = [];
+        while (stack.length > 0) {
+            node = stack.pop();
+            if (node.name === name) {
+                result.push(node);
+            }
+            for (i = node.children.length - 1; i >= 0; i -= 1) {
+                stack.push(node.children[i]);
+            }
+        }
+        return result;
+    }
+
+    function findAllNodesNoChildren(names, root) {
+        var i, stack, node, result, namesLookup;
+        if (root === null || root === undefined) { return null; }
+        stack = [root];
+        result = [];
+        namesLookup = {};
+        for (i = 0; i < names.length; i += 1) {
+            namesLookup[names[i]] = true;
+        }
+
+        while (stack.length > 0) {
+            node = stack.pop();
+            if (node.name in namesLookup) {
+                result.push(node);
+                // don't look at children (hence findAllNodesNoChildren)
+            } else {
+                for (i = node.children.length - 1; i >= 0; i -= 1) {
+                    stack.push(node.children[i]);
+                }
+            }
+        }
+        return result;
+    }
+
+    function giveResult(ast) {
+        var addresses, groupsAndMailboxes, i, groupOrMailbox, result;
+        if (ast === null) {
+            return null;
+        }
+        addresses = [];
+
+        // An address is a 'group' (i.e. a list of mailboxes) or a 'mailbox'.
+        groupsAndMailboxes = findAllNodesNoChildren(['group', 'mailbox'], ast);
+        for (i = 0; i <  groupsAndMailboxes.length; i += 1) {
+            groupOrMailbox = groupsAndMailboxes[i];
+            if (groupOrMailbox.name === 'group') {
+                addresses.push(giveResultGroup(groupOrMailbox));
+            } else if (groupOrMailbox.name === 'mailbox') {
+                addresses.push(giveResultMailbox(groupOrMailbox));
+            }
+        }
+
+        result = {
+            ast: ast,
+            addresses: addresses,
+        };
+        if (opts.simple) {
+            result = simplifyResult(result);
+        }
+        if (opts.oneResult) {
+            return oneResult(result);
+        }
+        if (opts.simple) {
+            return result && result.addresses;
+        } else {
+            return result;
+        }
+    }
+
+    function giveResultGroup(group) {
+        var i;
+        var groupName = findNode('display-name', group);
+        var groupResultMailboxes = [];
+        var mailboxes = findAllNodesNoChildren(['mailbox'], group);
+        for (i = 0; i < mailboxes.length; i += 1) {
+            groupResultMailboxes.push(giveResultMailbox(mailboxes[i]));
+        }
+        return {
+            node: group,
+            parts: {
+                name: groupName,
+            },
+            type: group.name, // 'group'
+            name: grabSemantic(groupName),
+            addresses: groupResultMailboxes,
+        };
+    }
+
+    function giveResultMailbox(mailbox) {
+        var name = findNode('display-name', mailbox);
+        var aspec = findNode('addr-spec', mailbox);
+        var comments = findAllNodes('cfws', mailbox);
+
+        var local = findNode('local-part', aspec);
+        var domain = findNode('domain', aspec);
+        return {
+            node: mailbox,
+            parts: {
+                name: name,
+                address: aspec,
+                local: local,
+                domain: domain,
+                comments: comments
+            },
+            type: mailbox.name, // 'mailbox'
+            name: grabSemantic(name),
+            address: grabSemantic(aspec),
+            local: grabSemantic(local),
+            domain: grabSemantic(domain),
+            groupName: grabSemantic(mailbox.groupName),
+        };
+    }
+
+    function grabSemantic(n) {
+        return n !== null && n !== undefined ? n.semantic : null;
+    }
+
+    function simplifyResult(result) {
+        var i;
+        if (result && result.addresses) {
+            for (i = 0; i < result.addresses.length; i += 1) {
+                delete result.addresses[i].node;
+            }
+        }
+        return result;
+    }
+
+    function oneResult(result) {
+        if (!result) { return null; }
+        if (!opts.partial && result.addresses.length > 1) { return null; }
+        return result.addresses && result.addresses[0];
+    }
+
+    /////////////////////////////////////////////////////
+
+    var parseString, pos, len, parsed, startProduction;
+
+    opts = handleOpts(opts, {});
+    if (opts === null) { return null; }
+
+    parseString = opts.input;
+
+    startProduction = {
+        'address': address,
+        'address-list': addressList,
+        'angle-addr': angleAddr,
+        'from': fromSpec,
+        'group': group,
+        'mailbox': mailbox,
+        'mailbox-list': mailboxList,
+        'reply-to': replyToSpec,
+        'sender': senderSpec,
+    }[opts.startAt] || addressList;
+
+    if (!opts.strict) {
+        initialize();
+        opts.strict = true;
+        parsed = startProduction(parseString);
+        if (opts.partial || !inStr()) {
+            return giveResult(parsed);
+        }
+        opts.strict = false;
+    }
+
+    initialize();
+    parsed = startProduction(parseString);
+    if (!opts.partial && inStr()) { return null; }
+    return giveResult(parsed);
+}
+
+function parseOneAddressSimple(opts) {
+    return parse5322(handleOpts(opts, {
+        oneResult: true,
+        rfc6532: true,
+        simple: true,
+        startAt: 'address-list',
+    }));
+}
+
+function parseAddressListSimple(opts) {
+    return parse5322(handleOpts(opts, {
+        rfc6532: true,
+        simple: true,
+        startAt: 'address-list',
+    }));
+}
+
+function parseFromSimple(opts) {
+    return parse5322(handleOpts(opts, {
+        rfc6532: true,
+        simple: true,
+        startAt: 'from',
+    }));
+}
+
+function parseSenderSimple(opts) {
+    return parse5322(handleOpts(opts, {
+        oneResult: true,
+        rfc6532: true,
+        simple: true,
+        startAt: 'sender',
+    }));
+}
+
+function parseReplyToSimple(opts) {
+    return parse5322(handleOpts(opts, {
+        rfc6532: true,
+        simple: true,
+        startAt: 'reply-to',
+    }));
+}
+
+function handleOpts(opts, defs) {
+    function isString(str) {
+        return Object.prototype.toString.call(str) === '[object String]';
+    }
+
+    function isObject(o) {
+        return o === Object(o);
+    }
+
+    function isNullUndef(o) {
+        return o === null || o === undefined;
+    }
+
+    var defaults, o;
+
+    if (isString(opts)) {
+        opts = { input: opts };
+    } else if (!isObject(opts)) {
+        return null;
+    }
+
+    if (!isString(opts.input)) { return null; }
+    if (!defs) { return null; }
+
+    defaults = {
+        oneResult: false,
+        partial: false,
+        rejectTLD: false,
+        rfc6532: false,
+        simple: false,
+        startAt: 'address-list',
+        strict: false,
+    };
+
+    for (o in defaults) {
+        if (isNullUndef(opts[o])) {
+            opts[o] = !isNullUndef(defs[o]) ? defs[o] : defaults[o];
+        }
+    }
+    return opts;
+}
+
+parse5322.parseOneAddress = parseOneAddressSimple;
+parse5322.parseAddressList = parseAddressListSimple;
+parse5322.parseFrom = parseFromSimple;
+parse5322.parseSender = parseSenderSimple;
+parse5322.parseReplyTo = parseReplyToSimple;
+
+if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+    module.exports = parse5322;
+} else {
+    global.emailAddresses = parse5322;
+}
+
+}(this));
+
+},{}],99:[function(require,module,exports){
 module.exports = require('./lib/gravatar');
 
-},{"./lib/gravatar":99}],99:[function(require,module,exports){
+},{"./lib/gravatar":100}],100:[function(require,module,exports){
 var md5 = require('blueimp-md5'),
     querystring = require('querystring'),
     MD5_REGEX = /^[0-9a-f]{32}$/;
@@ -28316,7 +29389,7 @@ var gravatar = module.exports = {
     }
 };
 
-},{"blueimp-md5":83,"querystring":105}],100:[function(require,module,exports){
+},{"blueimp-md5":83,"querystring":106}],101:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = nBytes * 8 - mLen - 1
@@ -28402,7 +29475,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],101:[function(require,module,exports){
+},{}],102:[function(require,module,exports){
 //! moment.js
 //! version : 2.19.1
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
@@ -32918,9 +33991,9 @@ return hooks;
 
 })));
 
-},{}],102:[function(require,module,exports){
-/*! ngTagsInput v3.2.0 License: MIT */!function(){"use strict";var a={backspace:8,tab:9,enter:13,escape:27,space:32,up:38,down:40,left:37,right:39,"delete":46,comma:188},b=9007199254740991,c=["text","email","url"],d=angular.module("ngTagsInput",[]);d.directive("tagsInput",["$timeout","$document","$window","$q","tagsInputConfig","tiUtil",function(d,e,f,g,h,i){function j(a,b,c,d){var e,f,h,j,k={};return e=function(b){return i.safeToString(b[a.displayProperty])},f=function(b,c){b[a.displayProperty]=c},h=function(b){var d=e(b),f=d&&d.length>=a.minLength&&d.length<=a.maxLength&&a.allowedTagsPattern.test(d)&&!i.findInObjectArray(k.items,b,a.keyProperty||a.displayProperty);return g.when(f&&c({$tag:b})).then(i.promisifyValue)},j=function(a){return g.when(d({$tag:a})).then(i.promisifyValue)},k.items=[],k.addText=function(a){var b={};return f(b,a),k.add(b)},k.add=function(c){var d=e(c);return a.replaceSpacesWithDashes&&(d=i.replaceSpacesWithDashes(d)),f(c,d),h(c).then(function(){k.items.push(c),b.trigger("tag-added",{$tag:c})})["catch"](function(){d&&b.trigger("invalid-tag",{$tag:c})})},k.remove=function(a){var c=k.items[a];return j(c).then(function(){return k.items.splice(a,1),k.clearSelection(),b.trigger("tag-removed",{$tag:c}),c})},k.select=function(a){0>a?a=k.items.length-1:a>=k.items.length&&(a=0),k.index=a,k.selected=k.items[a]},k.selectPrior=function(){k.select(--k.index)},k.selectNext=function(){k.select(++k.index)},k.removeSelected=function(){return k.remove(k.index)},k.clearSelection=function(){k.selected=null,k.index=-1},k.getItems=function(){return a.useStrings?k.items.map(e):k.items},k.clearSelection(),k}function k(a){return-1!==c.indexOf(a)}return{restrict:"E",require:"ngModel",scope:{tags:"=ngModel",text:"=?",templateScope:"=?",tagClass:"&",onTagAdding:"&",onTagAdded:"&",onInvalidTag:"&",onTagRemoving:"&",onTagRemoved:"&",onTagClicked:"&"},replace:!1,transclude:!0,templateUrl:"ngTagsInput/tags-input.html",controller:["$scope","$attrs","$element",function(a,c,d){a.events=i.simplePubSub(),h.load("tagsInput",a,c,{template:[String,"ngTagsInput/tag-item.html"],type:[String,"text",k],placeholder:[String,"Add a tag"],tabindex:[Number,null],removeTagSymbol:[String,String.fromCharCode(215)],replaceSpacesWithDashes:[Boolean,!0],minLength:[Number,3],maxLength:[Number,b],addOnEnter:[Boolean,!0],addOnSpace:[Boolean,!1],addOnComma:[Boolean,!0],addOnBlur:[Boolean,!0],addOnPaste:[Boolean,!1],pasteSplitPattern:[RegExp,/,/],allowedTagsPattern:[RegExp,/.+/],enableEditingLastTag:[Boolean,!1],minTags:[Number,0],maxTags:[Number,b],displayProperty:[String,"text"],keyProperty:[String,""],allowLeftoverText:[Boolean,!1],addFromAutocompleteOnly:[Boolean,!1],spellcheck:[Boolean,!0],useStrings:[Boolean,!1]}),a.tagList=new j(a.options,a.events,i.handleUndefinedResult(a.onTagAdding,!0),i.handleUndefinedResult(a.onTagRemoving,!0)),this.registerAutocomplete=function(){d.find("input");return{addTag:function(b){return a.tagList.add(b)},getTags:function(){return a.tagList.items},getCurrentTagText:function(){return a.newTag.text()},getOptions:function(){return a.options},getTemplateScope:function(){return a.templateScope},on:function(b,c){return a.events.on(b,c,!0),this}}},this.registerTagItem=function(){return{getOptions:function(){return a.options},removeTag:function(b){a.disabled||a.tagList.remove(b)}}}}],link:function(b,c,g,h){var j,k,l=[a.enter,a.comma,a.space,a.backspace,a["delete"],a.left,a.right],m=b.tagList,n=b.events,o=b.options,p=c.find("input"),q=["minTags","maxTags","allowLeftoverText"];j=function(){h.$setValidity("maxTags",m.items.length<=o.maxTags),h.$setValidity("minTags",m.items.length>=o.minTags),h.$setValidity("leftoverText",b.hasFocus||o.allowLeftoverText?!0:!b.newTag.text())},k=function(){d(function(){p[0].focus()})},h.$isEmpty=function(a){return!a||!a.length},b.newTag={text:function(a){return angular.isDefined(a)?(b.text=a,void n.trigger("input-change",a)):b.text||""},invalid:null},b.track=function(a){return a[o.keyProperty||o.displayProperty]},b.getTagClass=function(a,c){var d=a===m.selected;return[b.tagClass({$tag:a,$index:c,$selected:d}),{selected:d}]},b.$watch("tags",function(a){if(a){if(m.items=i.makeObjectArray(a,o.displayProperty),o.useStrings)return;b.tags=m.items}else m.items=[]}),b.$watch("tags.length",function(){j(),h.$validate()}),g.$observe("disabled",function(a){b.disabled=a}),b.eventHandlers={input:{keydown:function(a){n.trigger("input-keydown",a)},focus:function(){b.hasFocus||(b.hasFocus=!0,n.trigger("input-focus"))},blur:function(){d(function(){var a=e.prop("activeElement"),d=a===p[0],f=c[0].contains(a);(d||!f)&&(b.hasFocus=!1,n.trigger("input-blur"))})},paste:function(a){a.getTextData=function(){var b=a.clipboardData||a.originalEvent&&a.originalEvent.clipboardData;return b?b.getData("text/plain"):f.clipboardData.getData("Text")},n.trigger("input-paste",a)}},host:{click:function(){b.disabled||k()}},tag:{click:function(a){n.trigger("tag-clicked",{$tag:a})}}},n.on("tag-added",b.onTagAdded).on("invalid-tag",b.onInvalidTag).on("tag-removed",b.onTagRemoved).on("tag-clicked",b.onTagClicked).on("tag-added",function(){b.newTag.text("")}).on("tag-added tag-removed",function(){b.tags=m.getItems(),h.$setDirty(),k()}).on("invalid-tag",function(){b.newTag.invalid=!0}).on("option-change",function(a){-1!==q.indexOf(a.name)&&j()}).on("input-change",function(){m.clearSelection(),b.newTag.invalid=null}).on("input-focus",function(){c.triggerHandler("focus"),h.$setValidity("leftoverText",!0)}).on("input-blur",function(){o.addOnBlur&&!o.addFromAutocompleteOnly&&m.addText(b.newTag.text()),c.triggerHandler("blur"),j()}).on("input-keydown",function(c){var d,e,f,g,h=c.keyCode,j={};i.isModifierOn(c)||-1===l.indexOf(h)||(j[a.enter]=o.addOnEnter,j[a.comma]=o.addOnComma,j[a.space]=o.addOnSpace,d=!o.addFromAutocompleteOnly&&j[h],e=(h===a.backspace||h===a["delete"])&&m.selected,g=h===a.backspace&&0===b.newTag.text().length&&o.enableEditingLastTag,f=(h===a.backspace||h===a.left||h===a.right)&&0===b.newTag.text().length&&!o.enableEditingLastTag,d?m.addText(b.newTag.text()):g?(m.selectPrior(),m.removeSelected().then(function(a){a&&b.newTag.text(a[o.displayProperty])})):e?m.removeSelected():f&&(h===a.left||h===a.backspace?m.selectPrior():h===a.right&&m.selectNext()),(d||f||e||g)&&c.preventDefault())}).on("input-paste",function(a){if(o.addOnPaste){var b=a.getTextData(),c=b.split(o.pasteSplitPattern);c.length>1&&(c.forEach(function(a){m.addText(a)}),a.preventDefault())}})}}}]),d.directive("tiTagItem",["tiUtil",function(a){return{restrict:"E",require:"^tagsInput",template:'<ng-include src="$$template"></ng-include>',scope:{$scope:"=scope",data:"="},link:function(b,c,d,e){var f=e.registerTagItem(),g=f.getOptions();b.$$template=g.template,b.$$removeTagSymbol=g.removeTagSymbol,b.$getDisplayText=function(){return a.safeToString(b.data[g.displayProperty])},b.$removeTag=function(){f.removeTag(b.$index)},b.$watch("$parent.$index",function(a){b.$index=a})}}}]),d.directive("autoComplete",["$document","$timeout","$sce","$q","tagsInputConfig","tiUtil",function(b,c,d,e,f,g){function h(a,b,c){var d,f,h,i={};return h=function(){return b.tagsInput.keyProperty||b.tagsInput.displayProperty},d=function(a,c){return a.filter(function(a){return!g.findInObjectArray(c,a,h(),function(a,c){return b.tagsInput.replaceSpacesWithDashes&&(a=g.replaceSpacesWithDashes(a),c=g.replaceSpacesWithDashes(c)),g.defaultComparer(a,c)})})},i.reset=function(){f=null,i.items=[],i.visible=!1,i.index=-1,i.selected=null,i.query=null},i.show=function(){b.selectFirstMatch?i.select(0):i.selected=null,i.visible=!0},i.load=g.debounce(function(c,j){i.query=c;var k=e.when(a({$query:c}));f=k,k.then(function(a){k===f&&(a=g.makeObjectArray(a.data||a,h()),a=d(a,j),i.items=a.slice(0,b.maxResultsToShow),i.items.length>0?i.show():i.reset())})},b.debounceDelay),i.selectNext=function(){i.select(++i.index)},i.selectPrior=function(){i.select(--i.index)},i.select=function(a){0>a?a=i.items.length-1:a>=i.items.length&&(a=0),i.index=a,i.selected=i.items[a],c.trigger("suggestion-selected",a)},i.reset(),i}function i(a,b){var c=a.find("li").eq(b),d=c.parent(),e=c.prop("offsetTop"),f=c.prop("offsetHeight"),g=d.prop("clientHeight"),h=d.prop("scrollTop");h>e?d.prop("scrollTop",e):e+f>g+h&&d.prop("scrollTop",e+f-g)}return{restrict:"E",require:"^tagsInput",scope:{source:"&",matchClass:"&"},templateUrl:"ngTagsInput/auto-complete.html",controller:["$scope","$element","$attrs",function(a,b,c){a.events=g.simplePubSub(),f.load("autoComplete",a,c,{template:[String,"ngTagsInput/auto-complete-match.html"],debounceDelay:[Number,100],minLength:[Number,3],highlightMatchedText:[Boolean,!0],maxResultsToShow:[Number,10],loadOnDownArrow:[Boolean,!1],loadOnEmpty:[Boolean,!1],loadOnFocus:[Boolean,!1],selectFirstMatch:[Boolean,!0],displayProperty:[String,""]}),a.suggestionList=new h(a.source,a.options,a.events),this.registerAutocompleteMatch=function(){return{getOptions:function(){return a.options},getQuery:function(){return a.suggestionList.query}}}}],link:function(b,c,d,e){var f,h=[a.enter,a.tab,a.escape,a.up,a.down],j=b.suggestionList,k=e.registerAutocomplete(),l=b.options,m=b.events;l.tagsInput=k.getOptions(),f=function(a){return a&&a.length>=l.minLength||!a&&l.loadOnEmpty},b.templateScope=k.getTemplateScope(),b.addSuggestionByIndex=function(a){j.select(a),b.addSuggestion()},b.addSuggestion=function(){var a=!1;return j.selected&&(k.addTag(angular.copy(j.selected)),j.reset(),a=!0),a},b.track=function(a){return a[l.tagsInput.keyProperty||l.tagsInput.displayProperty]},b.getSuggestionClass=function(a,c){var d=a===j.selected;return[b.matchClass({$match:a,$index:c,$selected:d}),{selected:d}]},k.on("tag-added tag-removed invalid-tag input-blur",function(){j.reset()}).on("input-change",function(a){f(a)?j.load(a,k.getTags()):j.reset()}).on("input-focus",function(){var a=k.getCurrentTagText();l.loadOnFocus&&f(a)&&j.load(a,k.getTags())}).on("input-keydown",function(c){var d=c.keyCode,e=!1;if(!g.isModifierOn(c)&&-1!==h.indexOf(d))return j.visible?d===a.down?(j.selectNext(),e=!0):d===a.up?(j.selectPrior(),e=!0):d===a.escape?(j.reset(),e=!0):(d===a.enter||d===a.tab)&&(e=b.addSuggestion()):d===a.down&&b.options.loadOnDownArrow&&(j.load(k.getCurrentTagText(),k.getTags()),e=!0),e?(c.preventDefault(),c.stopImmediatePropagation(),!1):void 0}),m.on("suggestion-selected",function(a){i(c,a)})}}}]),d.directive("tiAutocompleteMatch",["$sce","tiUtil",function(a,b){return{restrict:"E",require:"^autoComplete",template:'<ng-include src="$$template"></ng-include>',scope:{$scope:"=scope",data:"="},link:function(c,d,e,f){var g=f.registerAutocompleteMatch(),h=g.getOptions();c.$$template=h.template,c.$index=c.$parent.$index,c.$highlight=function(c){return h.highlightMatchedText&&(c=b.safeHighlight(c,g.getQuery())),a.trustAsHtml(c)},c.$getDisplayText=function(){return b.safeToString(c.data[h.displayProperty||h.tagsInput.displayProperty])}}}}]),d.directive("tiTranscludeAppend",function(){return function(a,b,c,d,e){e(function(a){b.append(a)})}}),d.directive("tiAutosize",["tagsInputConfig",function(a){return{restrict:"A",require:"ngModel",link:function(b,c,d,e){var f,g,h=a.getTextAutosizeThreshold();f=angular.element('<span class="input"></span>'),f.css("display","none").css("visibility","hidden").css("width","auto").css("white-space","pre"),c.parent().append(f),g=function(a){var b,e=a;return angular.isString(e)&&0===e.length&&(e=d.placeholder),e&&(f.text(e),f.css("display",""),b=f.prop("offsetWidth"),f.css("display","none")),c.css("width",b?b+h+"px":""),a},e.$parsers.unshift(g),e.$formatters.unshift(g),d.$observe("placeholder",function(a){e.$modelValue||g(a)})}}}]),d.directive("tiBindAttrs",function(){return function(a,b,c){a.$watch(c.tiBindAttrs,function(a){angular.forEach(a,function(a,b){c.$set(b,a)})},!0)}}),d.provider("tagsInputConfig",function(){var a={},b={},c=3;this.setDefaults=function(b,c){return a[b]=c,this},this.setActiveInterpolation=function(a,c){return b[a]=c,this},this.setTextAutosizeThreshold=function(a){return c=a,this},this.$get=["$interpolate",function(d){var e={};return e[String]=function(a){return a},e[Number]=function(a){return parseInt(a,10)},e[Boolean]=function(a){return"true"===a.toLowerCase()},e[RegExp]=function(a){return new RegExp(a)},{load:function(c,f,g,h){var i=function(){return!0};f.options={},angular.forEach(h,function(h,j){var k,l,m,n,o,p;k=h[0],l=h[1],m=h[2]||i,n=e[k],o=function(){var b=a[c]&&a[c][j];return angular.isDefined(b)?b:l},p=function(a){f.options[j]=a&&m(a)?n(a):o()},b[c]&&b[c][j]?g.$observe(j,function(a){p(a),f.events.trigger("option-change",{name:j,newValue:a})}):p(g[j]&&d(g[j])(f.$parent))})},getTextAutosizeThreshold:function(){return c}}}]}),d.factory("tiUtil",["$timeout","$q",function(a,b){var c={};return c.debounce=function(b,c){var d;return function(){var e=arguments;a.cancel(d),d=a(function(){b.apply(null,e)},c)}},c.makeObjectArray=function(a,b){if(!angular.isArray(a)||0===a.length||angular.isObject(a[0]))return a;var c=[];return a.forEach(function(a){var d={};d[b]=a,c.push(d)}),c},c.findInObjectArray=function(a,b,d,e){var f=null;return e=e||c.defaultComparer,a.some(function(a){return e(a[d],b[d])?(f=a,!0):void 0}),f},c.defaultComparer=function(a,b){return c.safeToString(a).toLowerCase()===c.safeToString(b).toLowerCase()},c.safeHighlight=function(a,b){function d(a){return a.replace(/([.?*+^$[\]\\(){}|-])/g,"\\$1")}if(a=c.encodeHTML(a),b=c.encodeHTML(b),!b)return a;var e=new RegExp("&[^;]+;|"+d(b),"gi");return a.replace(e,function(a){return a.toLowerCase()===b.toLowerCase()?"<em>"+a+"</em>":a})},c.safeToString=function(a){return angular.isUndefined(a)||null==a?"":a.toString().trim()},c.encodeHTML=function(a){return c.safeToString(a).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")},c.handleUndefinedResult=function(a,b){return function(){var c=a.apply(null,arguments);return angular.isUndefined(c)?b:c}},c.replaceSpacesWithDashes=function(a){return c.safeToString(a).replace(/\s/g,"-")},c.isModifierOn=function(a){return a.shiftKey||a.ctrlKey||a.altKey||a.metaKey},c.promisifyValue=function(a){return a=angular.isUndefined(a)?!0:a,b[a?"when":"reject"]()},c.simplePubSub=function(){var a={};return{on:function(b,c,d){return b.split(" ").forEach(function(b){a[b]||(a[b]=[]);var e=d?[].unshift:[].push;e.call(a[b],c)}),this},trigger:function(b,d){var e=a[b]||[];return e.every(function(a){return c.handleUndefinedResult(a,!0)(d)}),this}}},c}]),d.run(["$templateCache",function(a){a.put("ngTagsInput/tags-input.html",'<div class="host" tabindex="-1" ng-click="eventHandlers.host.click()" ti-transclude-append><div class="tags" ng-class="{focused: hasFocus}"><ul class="tag-list"><li class="tag-item" ng-repeat="tag in tagList.items track by track(tag)" ng-class="getTagClass(tag, $index)" ng-click="eventHandlers.tag.click(tag)"><ti-tag-item scope="templateScope" data="::tag"></ti-tag-item></li></ul><input class="input" autocomplete="off" ng-model="newTag.text" ng-model-options="{getterSetter: true}" ng-keydown="eventHandlers.input.keydown($event)" ng-focus="eventHandlers.input.focus($event)" ng-blur="eventHandlers.input.blur($event)" ng-paste="eventHandlers.input.paste($event)" ng-trim="false" ng-class="{\'invalid-tag\': newTag.invalid}" ng-disabled="disabled" ti-bind-attrs="{type: options.type, placeholder: options.placeholder, tabindex: options.tabindex, spellcheck: options.spellcheck}" ti-autosize></div></div>'),a.put("ngTagsInput/tag-item.html",'<span ng-bind="$getDisplayText()"></span> <a class="remove-button" ng-click="$removeTag()" ng-bind="::$$removeTagSymbol"></a>'),a.put("ngTagsInput/auto-complete.html",'<div class="autocomplete" ng-if="suggestionList.visible"><ul class="suggestion-list"><li class="suggestion-item" ng-repeat="item in suggestionList.items track by track(item)" ng-class="getSuggestionClass(item, $index)" ng-click="addSuggestionByIndex($index)" ng-mouseenter="suggestionList.select($index)"><ti-autocomplete-match scope="templateScope" data="::item"></ti-autocomplete-match></li></ul></div>'),a.put("ngTagsInput/auto-complete-match.html",'<span ng-bind-html="$highlight($getDisplayText())"></span>')}])}();
 },{}],103:[function(require,module,exports){
+/*! ngTagsInput v3.2.0 License: MIT */!function(){"use strict";var a={backspace:8,tab:9,enter:13,escape:27,space:32,up:38,down:40,left:37,right:39,"delete":46,comma:188},b=9007199254740991,c=["text","email","url"],d=angular.module("ngTagsInput",[]);d.directive("tagsInput",["$timeout","$document","$window","$q","tagsInputConfig","tiUtil",function(d,e,f,g,h,i){function j(a,b,c,d){var e,f,h,j,k={};return e=function(b){return i.safeToString(b[a.displayProperty])},f=function(b,c){b[a.displayProperty]=c},h=function(b){var d=e(b),f=d&&d.length>=a.minLength&&d.length<=a.maxLength&&a.allowedTagsPattern.test(d)&&!i.findInObjectArray(k.items,b,a.keyProperty||a.displayProperty);return g.when(f&&c({$tag:b})).then(i.promisifyValue)},j=function(a){return g.when(d({$tag:a})).then(i.promisifyValue)},k.items=[],k.addText=function(a){var b={};return f(b,a),k.add(b)},k.add=function(c){var d=e(c);return a.replaceSpacesWithDashes&&(d=i.replaceSpacesWithDashes(d)),f(c,d),h(c).then(function(){k.items.push(c),b.trigger("tag-added",{$tag:c})})["catch"](function(){d&&b.trigger("invalid-tag",{$tag:c})})},k.remove=function(a){var c=k.items[a];return j(c).then(function(){return k.items.splice(a,1),k.clearSelection(),b.trigger("tag-removed",{$tag:c}),c})},k.select=function(a){0>a?a=k.items.length-1:a>=k.items.length&&(a=0),k.index=a,k.selected=k.items[a]},k.selectPrior=function(){k.select(--k.index)},k.selectNext=function(){k.select(++k.index)},k.removeSelected=function(){return k.remove(k.index)},k.clearSelection=function(){k.selected=null,k.index=-1},k.getItems=function(){return a.useStrings?k.items.map(e):k.items},k.clearSelection(),k}function k(a){return-1!==c.indexOf(a)}return{restrict:"E",require:"ngModel",scope:{tags:"=ngModel",text:"=?",templateScope:"=?",tagClass:"&",onTagAdding:"&",onTagAdded:"&",onInvalidTag:"&",onTagRemoving:"&",onTagRemoved:"&",onTagClicked:"&"},replace:!1,transclude:!0,templateUrl:"ngTagsInput/tags-input.html",controller:["$scope","$attrs","$element",function(a,c,d){a.events=i.simplePubSub(),h.load("tagsInput",a,c,{template:[String,"ngTagsInput/tag-item.html"],type:[String,"text",k],placeholder:[String,"Add a tag"],tabindex:[Number,null],removeTagSymbol:[String,String.fromCharCode(215)],replaceSpacesWithDashes:[Boolean,!0],minLength:[Number,3],maxLength:[Number,b],addOnEnter:[Boolean,!0],addOnSpace:[Boolean,!1],addOnComma:[Boolean,!0],addOnBlur:[Boolean,!0],addOnPaste:[Boolean,!1],pasteSplitPattern:[RegExp,/,/],allowedTagsPattern:[RegExp,/.+/],enableEditingLastTag:[Boolean,!1],minTags:[Number,0],maxTags:[Number,b],displayProperty:[String,"text"],keyProperty:[String,""],allowLeftoverText:[Boolean,!1],addFromAutocompleteOnly:[Boolean,!1],spellcheck:[Boolean,!0],useStrings:[Boolean,!1]}),a.tagList=new j(a.options,a.events,i.handleUndefinedResult(a.onTagAdding,!0),i.handleUndefinedResult(a.onTagRemoving,!0)),this.registerAutocomplete=function(){d.find("input");return{addTag:function(b){return a.tagList.add(b)},getTags:function(){return a.tagList.items},getCurrentTagText:function(){return a.newTag.text()},getOptions:function(){return a.options},getTemplateScope:function(){return a.templateScope},on:function(b,c){return a.events.on(b,c,!0),this}}},this.registerTagItem=function(){return{getOptions:function(){return a.options},removeTag:function(b){a.disabled||a.tagList.remove(b)}}}}],link:function(b,c,g,h){var j,k,l=[a.enter,a.comma,a.space,a.backspace,a["delete"],a.left,a.right],m=b.tagList,n=b.events,o=b.options,p=c.find("input"),q=["minTags","maxTags","allowLeftoverText"];j=function(){h.$setValidity("maxTags",m.items.length<=o.maxTags),h.$setValidity("minTags",m.items.length>=o.minTags),h.$setValidity("leftoverText",b.hasFocus||o.allowLeftoverText?!0:!b.newTag.text())},k=function(){d(function(){p[0].focus()})},h.$isEmpty=function(a){return!a||!a.length},b.newTag={text:function(a){return angular.isDefined(a)?(b.text=a,void n.trigger("input-change",a)):b.text||""},invalid:null},b.track=function(a){return a[o.keyProperty||o.displayProperty]},b.getTagClass=function(a,c){var d=a===m.selected;return[b.tagClass({$tag:a,$index:c,$selected:d}),{selected:d}]},b.$watch("tags",function(a){if(a){if(m.items=i.makeObjectArray(a,o.displayProperty),o.useStrings)return;b.tags=m.items}else m.items=[]}),b.$watch("tags.length",function(){j(),h.$validate()}),g.$observe("disabled",function(a){b.disabled=a}),b.eventHandlers={input:{keydown:function(a){n.trigger("input-keydown",a)},focus:function(){b.hasFocus||(b.hasFocus=!0,n.trigger("input-focus"))},blur:function(){d(function(){var a=e.prop("activeElement"),d=a===p[0],f=c[0].contains(a);(d||!f)&&(b.hasFocus=!1,n.trigger("input-blur"))})},paste:function(a){a.getTextData=function(){var b=a.clipboardData||a.originalEvent&&a.originalEvent.clipboardData;return b?b.getData("text/plain"):f.clipboardData.getData("Text")},n.trigger("input-paste",a)}},host:{click:function(){b.disabled||k()}},tag:{click:function(a){n.trigger("tag-clicked",{$tag:a})}}},n.on("tag-added",b.onTagAdded).on("invalid-tag",b.onInvalidTag).on("tag-removed",b.onTagRemoved).on("tag-clicked",b.onTagClicked).on("tag-added",function(){b.newTag.text("")}).on("tag-added tag-removed",function(){b.tags=m.getItems(),h.$setDirty(),k()}).on("invalid-tag",function(){b.newTag.invalid=!0}).on("option-change",function(a){-1!==q.indexOf(a.name)&&j()}).on("input-change",function(){m.clearSelection(),b.newTag.invalid=null}).on("input-focus",function(){c.triggerHandler("focus"),h.$setValidity("leftoverText",!0)}).on("input-blur",function(){o.addOnBlur&&!o.addFromAutocompleteOnly&&m.addText(b.newTag.text()),c.triggerHandler("blur"),j()}).on("input-keydown",function(c){var d,e,f,g,h=c.keyCode,j={};i.isModifierOn(c)||-1===l.indexOf(h)||(j[a.enter]=o.addOnEnter,j[a.comma]=o.addOnComma,j[a.space]=o.addOnSpace,d=!o.addFromAutocompleteOnly&&j[h],e=(h===a.backspace||h===a["delete"])&&m.selected,g=h===a.backspace&&0===b.newTag.text().length&&o.enableEditingLastTag,f=(h===a.backspace||h===a.left||h===a.right)&&0===b.newTag.text().length&&!o.enableEditingLastTag,d?m.addText(b.newTag.text()):g?(m.selectPrior(),m.removeSelected().then(function(a){a&&b.newTag.text(a[o.displayProperty])})):e?m.removeSelected():f&&(h===a.left||h===a.backspace?m.selectPrior():h===a.right&&m.selectNext()),(d||f||e||g)&&c.preventDefault())}).on("input-paste",function(a){if(o.addOnPaste){var b=a.getTextData(),c=b.split(o.pasteSplitPattern);c.length>1&&(c.forEach(function(a){m.addText(a)}),a.preventDefault())}})}}}]),d.directive("tiTagItem",["tiUtil",function(a){return{restrict:"E",require:"^tagsInput",template:'<ng-include src="$$template"></ng-include>',scope:{$scope:"=scope",data:"="},link:function(b,c,d,e){var f=e.registerTagItem(),g=f.getOptions();b.$$template=g.template,b.$$removeTagSymbol=g.removeTagSymbol,b.$getDisplayText=function(){return a.safeToString(b.data[g.displayProperty])},b.$removeTag=function(){f.removeTag(b.$index)},b.$watch("$parent.$index",function(a){b.$index=a})}}}]),d.directive("autoComplete",["$document","$timeout","$sce","$q","tagsInputConfig","tiUtil",function(b,c,d,e,f,g){function h(a,b,c){var d,f,h,i={};return h=function(){return b.tagsInput.keyProperty||b.tagsInput.displayProperty},d=function(a,c){return a.filter(function(a){return!g.findInObjectArray(c,a,h(),function(a,c){return b.tagsInput.replaceSpacesWithDashes&&(a=g.replaceSpacesWithDashes(a),c=g.replaceSpacesWithDashes(c)),g.defaultComparer(a,c)})})},i.reset=function(){f=null,i.items=[],i.visible=!1,i.index=-1,i.selected=null,i.query=null},i.show=function(){b.selectFirstMatch?i.select(0):i.selected=null,i.visible=!0},i.load=g.debounce(function(c,j){i.query=c;var k=e.when(a({$query:c}));f=k,k.then(function(a){k===f&&(a=g.makeObjectArray(a.data||a,h()),a=d(a,j),i.items=a.slice(0,b.maxResultsToShow),i.items.length>0?i.show():i.reset())})},b.debounceDelay),i.selectNext=function(){i.select(++i.index)},i.selectPrior=function(){i.select(--i.index)},i.select=function(a){0>a?a=i.items.length-1:a>=i.items.length&&(a=0),i.index=a,i.selected=i.items[a],c.trigger("suggestion-selected",a)},i.reset(),i}function i(a,b){var c=a.find("li").eq(b),d=c.parent(),e=c.prop("offsetTop"),f=c.prop("offsetHeight"),g=d.prop("clientHeight"),h=d.prop("scrollTop");h>e?d.prop("scrollTop",e):e+f>g+h&&d.prop("scrollTop",e+f-g)}return{restrict:"E",require:"^tagsInput",scope:{source:"&",matchClass:"&"},templateUrl:"ngTagsInput/auto-complete.html",controller:["$scope","$element","$attrs",function(a,b,c){a.events=g.simplePubSub(),f.load("autoComplete",a,c,{template:[String,"ngTagsInput/auto-complete-match.html"],debounceDelay:[Number,100],minLength:[Number,3],highlightMatchedText:[Boolean,!0],maxResultsToShow:[Number,10],loadOnDownArrow:[Boolean,!1],loadOnEmpty:[Boolean,!1],loadOnFocus:[Boolean,!1],selectFirstMatch:[Boolean,!0],displayProperty:[String,""]}),a.suggestionList=new h(a.source,a.options,a.events),this.registerAutocompleteMatch=function(){return{getOptions:function(){return a.options},getQuery:function(){return a.suggestionList.query}}}}],link:function(b,c,d,e){var f,h=[a.enter,a.tab,a.escape,a.up,a.down],j=b.suggestionList,k=e.registerAutocomplete(),l=b.options,m=b.events;l.tagsInput=k.getOptions(),f=function(a){return a&&a.length>=l.minLength||!a&&l.loadOnEmpty},b.templateScope=k.getTemplateScope(),b.addSuggestionByIndex=function(a){j.select(a),b.addSuggestion()},b.addSuggestion=function(){var a=!1;return j.selected&&(k.addTag(angular.copy(j.selected)),j.reset(),a=!0),a},b.track=function(a){return a[l.tagsInput.keyProperty||l.tagsInput.displayProperty]},b.getSuggestionClass=function(a,c){var d=a===j.selected;return[b.matchClass({$match:a,$index:c,$selected:d}),{selected:d}]},k.on("tag-added tag-removed invalid-tag input-blur",function(){j.reset()}).on("input-change",function(a){f(a)?j.load(a,k.getTags()):j.reset()}).on("input-focus",function(){var a=k.getCurrentTagText();l.loadOnFocus&&f(a)&&j.load(a,k.getTags())}).on("input-keydown",function(c){var d=c.keyCode,e=!1;if(!g.isModifierOn(c)&&-1!==h.indexOf(d))return j.visible?d===a.down?(j.selectNext(),e=!0):d===a.up?(j.selectPrior(),e=!0):d===a.escape?(j.reset(),e=!0):(d===a.enter||d===a.tab)&&(e=b.addSuggestion()):d===a.down&&b.options.loadOnDownArrow&&(j.load(k.getCurrentTagText(),k.getTags()),e=!0),e?(c.preventDefault(),c.stopImmediatePropagation(),!1):void 0}),m.on("suggestion-selected",function(a){i(c,a)})}}}]),d.directive("tiAutocompleteMatch",["$sce","tiUtil",function(a,b){return{restrict:"E",require:"^autoComplete",template:'<ng-include src="$$template"></ng-include>',scope:{$scope:"=scope",data:"="},link:function(c,d,e,f){var g=f.registerAutocompleteMatch(),h=g.getOptions();c.$$template=h.template,c.$index=c.$parent.$index,c.$highlight=function(c){return h.highlightMatchedText&&(c=b.safeHighlight(c,g.getQuery())),a.trustAsHtml(c)},c.$getDisplayText=function(){return b.safeToString(c.data[h.displayProperty||h.tagsInput.displayProperty])}}}}]),d.directive("tiTranscludeAppend",function(){return function(a,b,c,d,e){e(function(a){b.append(a)})}}),d.directive("tiAutosize",["tagsInputConfig",function(a){return{restrict:"A",require:"ngModel",link:function(b,c,d,e){var f,g,h=a.getTextAutosizeThreshold();f=angular.element('<span class="input"></span>'),f.css("display","none").css("visibility","hidden").css("width","auto").css("white-space","pre"),c.parent().append(f),g=function(a){var b,e=a;return angular.isString(e)&&0===e.length&&(e=d.placeholder),e&&(f.text(e),f.css("display",""),b=f.prop("offsetWidth"),f.css("display","none")),c.css("width",b?b+h+"px":""),a},e.$parsers.unshift(g),e.$formatters.unshift(g),d.$observe("placeholder",function(a){e.$modelValue||g(a)})}}}]),d.directive("tiBindAttrs",function(){return function(a,b,c){a.$watch(c.tiBindAttrs,function(a){angular.forEach(a,function(a,b){c.$set(b,a)})},!0)}}),d.provider("tagsInputConfig",function(){var a={},b={},c=3;this.setDefaults=function(b,c){return a[b]=c,this},this.setActiveInterpolation=function(a,c){return b[a]=c,this},this.setTextAutosizeThreshold=function(a){return c=a,this},this.$get=["$interpolate",function(d){var e={};return e[String]=function(a){return a},e[Number]=function(a){return parseInt(a,10)},e[Boolean]=function(a){return"true"===a.toLowerCase()},e[RegExp]=function(a){return new RegExp(a)},{load:function(c,f,g,h){var i=function(){return!0};f.options={},angular.forEach(h,function(h,j){var k,l,m,n,o,p;k=h[0],l=h[1],m=h[2]||i,n=e[k],o=function(){var b=a[c]&&a[c][j];return angular.isDefined(b)?b:l},p=function(a){f.options[j]=a&&m(a)?n(a):o()},b[c]&&b[c][j]?g.$observe(j,function(a){p(a),f.events.trigger("option-change",{name:j,newValue:a})}):p(g[j]&&d(g[j])(f.$parent))})},getTextAutosizeThreshold:function(){return c}}}]}),d.factory("tiUtil",["$timeout","$q",function(a,b){var c={};return c.debounce=function(b,c){var d;return function(){var e=arguments;a.cancel(d),d=a(function(){b.apply(null,e)},c)}},c.makeObjectArray=function(a,b){if(!angular.isArray(a)||0===a.length||angular.isObject(a[0]))return a;var c=[];return a.forEach(function(a){var d={};d[b]=a,c.push(d)}),c},c.findInObjectArray=function(a,b,d,e){var f=null;return e=e||c.defaultComparer,a.some(function(a){return e(a[d],b[d])?(f=a,!0):void 0}),f},c.defaultComparer=function(a,b){return c.safeToString(a).toLowerCase()===c.safeToString(b).toLowerCase()},c.safeHighlight=function(a,b){function d(a){return a.replace(/([.?*+^$[\]\\(){}|-])/g,"\\$1")}if(a=c.encodeHTML(a),b=c.encodeHTML(b),!b)return a;var e=new RegExp("&[^;]+;|"+d(b),"gi");return a.replace(e,function(a){return a.toLowerCase()===b.toLowerCase()?"<em>"+a+"</em>":a})},c.safeToString=function(a){return angular.isUndefined(a)||null==a?"":a.toString().trim()},c.encodeHTML=function(a){return c.safeToString(a).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")},c.handleUndefinedResult=function(a,b){return function(){var c=a.apply(null,arguments);return angular.isUndefined(c)?b:c}},c.replaceSpacesWithDashes=function(a){return c.safeToString(a).replace(/\s/g,"-")},c.isModifierOn=function(a){return a.shiftKey||a.ctrlKey||a.altKey||a.metaKey},c.promisifyValue=function(a){return a=angular.isUndefined(a)?!0:a,b[a?"when":"reject"]()},c.simplePubSub=function(){var a={};return{on:function(b,c,d){return b.split(" ").forEach(function(b){a[b]||(a[b]=[]);var e=d?[].unshift:[].push;e.call(a[b],c)}),this},trigger:function(b,d){var e=a[b]||[];return e.every(function(a){return c.handleUndefinedResult(a,!0)(d)}),this}}},c}]),d.run(["$templateCache",function(a){a.put("ngTagsInput/tags-input.html",'<div class="host" tabindex="-1" ng-click="eventHandlers.host.click()" ti-transclude-append><div class="tags" ng-class="{focused: hasFocus}"><ul class="tag-list"><li class="tag-item" ng-repeat="tag in tagList.items track by track(tag)" ng-class="getTagClass(tag, $index)" ng-click="eventHandlers.tag.click(tag)"><ti-tag-item scope="templateScope" data="::tag"></ti-tag-item></li></ul><input class="input" autocomplete="off" ng-model="newTag.text" ng-model-options="{getterSetter: true}" ng-keydown="eventHandlers.input.keydown($event)" ng-focus="eventHandlers.input.focus($event)" ng-blur="eventHandlers.input.blur($event)" ng-paste="eventHandlers.input.paste($event)" ng-trim="false" ng-class="{\'invalid-tag\': newTag.invalid}" ng-disabled="disabled" ti-bind-attrs="{type: options.type, placeholder: options.placeholder, tabindex: options.tabindex, spellcheck: options.spellcheck}" ti-autosize></div></div>'),a.put("ngTagsInput/tag-item.html",'<span ng-bind="$getDisplayText()"></span> <a class="remove-button" ng-click="$removeTag()" ng-bind="::$$removeTagSymbol"></a>'),a.put("ngTagsInput/auto-complete.html",'<div class="autocomplete" ng-if="suggestionList.visible"><ul class="suggestion-list"><li class="suggestion-item" ng-repeat="item in suggestionList.items track by track(item)" ng-class="getSuggestionClass(item, $index)" ng-click="addSuggestionByIndex($index)" ng-mouseenter="suggestionList.select($index)"><ti-autocomplete-match scope="templateScope" data="::item"></ti-autocomplete-match></li></ul></div>'),a.put("ngTagsInput/auto-complete-match.html",'<span ng-bind-html="$highlight($getDisplayText())"></span>')}])}();
+},{}],104:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -33006,7 +34079,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],104:[function(require,module,exports){
+},{}],105:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -33093,13 +34166,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],105:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":103,"./encode":104}],106:[function(require,module,exports){
+},{"./decode":104,"./encode":105}],107:[function(require,module,exports){
 (function (Buffer){
 /*!
  * Quill Editor v1.3.3
@@ -44382,7 +45455,7 @@ module.exports = __webpack_require__(63);
 /******/ ]);
 });
 }).call(this,require("buffer").Buffer)
-},{"buffer":97}],107:[function(require,module,exports){
+},{"buffer":97}],108:[function(require,module,exports){
 (function (global){
 global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
@@ -44401,6 +45474,7 @@ angular.module('huzzahApp', [
   require('./lib/localstore.js'),
   require('./lib/states.js'),
   require('./lib/socket.js'),
+  require('./lib/multipart.js'),
   require('./lib/directives.js'),
   require('./lib/filters.js'),
   require('./lib/controllers.js')
@@ -44410,7 +45484,7 @@ angular.module('huzzahApp', [
 })
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./lib/controllers.js":108,"./lib/directives.js":109,"./lib/filters.js":110,"./lib/localstore.js":111,"./lib/socket.js":112,"./lib/states.js":113,"@uirouter/angularjs":1,"angular":"angular","angular-animate":75,"angular-sanitize":79,"angular-ui-bootstrap":81,"bootstrap":84,"jquery":"jquery","ng-tags-input":102}],108:[function(require,module,exports){
+},{"./lib/controllers.js":109,"./lib/directives.js":110,"./lib/filters.js":111,"./lib/localstore.js":112,"./lib/multipart.js":113,"./lib/socket.js":114,"./lib/states.js":115,"@uirouter/angularjs":1,"angular":"angular","angular-animate":75,"angular-sanitize":79,"angular-ui-bootstrap":81,"bootstrap":84,"jquery":"jquery","ng-tags-input":103}],109:[function(require,module,exports){
 (function (global){
 global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
@@ -44419,10 +45493,10 @@ angular.module('huzzahApp.controllers', ['ui.router'])
 
 .controller('ctl.app', function($scope,$socket,$state,$rootScope,$http,$accountList,mailboxes){
   // $scope.mailboxes = mailboxes.data.mailboxes;
-  console.log($rootScope.session);
+
   $scope.mailboxes = mailboxes;
   var inbox = $scope.mailboxes.find(function(it){ return it.key.toUpperCase()=='INBOX'; });
-  console.log($state.current, inbox.key);
+  console.log("LISTED", $scope.mailboxes);
   if($state.current.name=='app'){
     $state.go('app.mailbox', {mailbox:inbox.key}, {reload:false, notify:true, location:false});
   }
@@ -44433,7 +45507,14 @@ angular.module('huzzahApp.controllers', ['ui.router'])
       $state.go('app', null, {reload:true});
     });
   }
+  $scope.badgeCount = function(mailbox){
+    if(!mailbox.messages){ return; }
 
+    if(/drafts/gi.test(mailbox.key)){
+      return mailbox.messages.total;
+    }
+    return mailbox.messages.unseen;
+  }
   $rootScope.$on('mailbox.newmail', function($event,count){
     console.log("NEW MAIL!", count);
   });
@@ -44448,7 +45529,7 @@ angular.module('huzzahApp.controllers', ['ui.router'])
   //   }
   // })
 })
-.controller('ctl.compose',function($scope,$http){
+.controller('ctl.compose',function($scope,$http,$multipart,$state){
   $scope.tags = [
       // { text: 'just' },
       // { text: 'some' },
@@ -44473,41 +45554,110 @@ angular.module('huzzahApp.controllers', ['ui.router'])
     cc_open: false,
     bcc_open: false
   };
+  $scope.progress = {stage:1, percent:0, saved_uid:null};
+  $scope.saveDate = Date.now();
+
+  $scope.save = function(){
+    $scope.progress.saving=true;
+    var progressListener = function(p){
+      console.log(p);
+      $scope.progress.percent = p;
+    }
+    var successListener = function(d){
+      console.log(d.data.uid);
+      if(d.data.uid){
+        $scope.progress.saved_uid = d.data.uid;
+        $scope.progress.last_saved = Date.now();
+      }
+      $scope.progress.percent = 100;
+      $scope.progress.saving = false;
+      //saved
+    }
+    var errorListener = function(e){
+      console.log(e);
+      $scope.progress.error = e;
+      $scope.progress.percent = 0;
+      $scope.progress.saving = false;
+    }
+    var api_url = "/imap/draft";
+    if($scope.progress.saved_uid){
+      api_url += '?uid='+$scope.progress.saved_uid;
+    }
+    $multipart.upload(api_url, $scope.params).then(successListener, errorListener, progressListener);
+  }
+
+
   $scope.send = function(){
+    var progressListener = function(p){
+      console.log(p);
+      $scope.progress.percent = p;
+    }
+    var successListener = function(d){
+      console.log(d);
+      $scope.progress.percent = 100;
+    }
+    var errorListener = function(e){
+      console.log(e);
+      $scope.progress.error = e;
+      $scope.progress.percent = 0;
+    }
     console.log('sending...', $scope.params);
     // $http.post('/smtp/send', $scope.params).then(function(d){
     //   console.log('sent', d);
     // });
 
-    $http({
-      method: 'POST',
-      url: '/smtp/send',
-      headers: {'Content-Type': undefined},
-      data: $scope.params,
-      transformRequest: function (data, headersGetter) {
-        var formData = new FormData();
-        angular.forEach(data, function (value, key) {
-          if(key=='attachments'){
-            value.forEach(function(f,i){ formData.append("attachment_"+i, f); });
-          }else if(key=='body'){
-            formData.append("body_html", value.html);
-            formData.append("body_text", value.text);
-          }else if(Array.isArray(value)){
-            formData.append(key, value.join(','));
-          }else{
-            formData.append(key, value);
-          }
-        });
-        // var headers = headersGetter();
-        // delete headers['Content-Type'];
-        return formData;
-      }
-    }).then(function (data) {
-      console.log('sent', data);
-      $state.go('app');
-    }, function (data, status) {
-      console.log('err0r', data, status);
-    });
+    if(!$scope.params.to || $scope.params.to.length==0){
+      $scope.progress.error = 'Email should have at least one To: address';
+      return;
+    }
+    if(!$scope.params.subject || $scope.params.subject.length==0){
+      $scope.progress.error = 'Email should have a subject';
+      return;
+    }
+
+    $scope.progress.stage = 2;
+    $multipart.upload("/smtp/send", $scope.params).then(successListener, errorListener, progressListener);
+
+    // $http({
+    //   method: 'POST',
+    //   url: '/smtp/send',
+    //   headers: {'Content-Type': undefined},
+    //   data: $scope.params,
+    //   uploadEventHandlers: {
+    //     progress: function(e){
+    //       if(e.lengthComputable){
+    //         $scope.progress.percent = parseFloat(((e.loaded/e.total)*100).toFixed(1));
+    //         console.log(e.loaded, e.total);
+    //       }
+    //     }
+    //   },
+    //   transformRequest: function (data, headersGetter) {
+    //     var formData = new FormData();
+    //     angular.forEach(data, function (value, key) {
+    //       if(key=='attachments'){
+    //         value.forEach(function(f,i){ formData.append("attachment_"+i, f); });
+    //       }else if(key=='body'){
+    //         formData.append("body_html", value.html);
+    //         formData.append("body_text", value.text);
+    //       }else if(Array.isArray(value)){
+    //         formData.append(key, value.join(','));
+    //       }else{
+    //         formData.append(key, value);
+    //       }
+    //     });
+    //     // var headers = headersGetter();
+    //     // delete headers['Content-Type'];
+    //     return formData;
+    //   }
+    // }).then(function (data) {
+    //   console.log('sent', data);
+    //   $scope.progress.percent = 100;
+    //   $scope.progress.stage = 3;
+    //   // $state.go('app');
+    // }, function (data, status) {
+    //   $scope.progress.stage = 1;
+    //   console.log('err0r', data, status);
+    // });
 
   }
 })
@@ -44518,12 +45668,21 @@ angular.module('huzzahApp.controllers', ['ui.router'])
   $scope.hasMessageOpened = $state.current.name=='app.mailbox.message';
   $rootScope.$on('mailbox.messages', function(evt,data){
     $scope.messages = data.messages;
+    console.log('mailbox.messages', data.messages);
     $scope.hasMailboxResponse = true;
   });
   $socket.send('mailbox.open', $stateParams);
 
   $scope.fetch = function(){
     $socket.send('mailbox.open', $stateParams);
+  }
+  $scope.setSeen = function(message){
+    message.attrs.flags.push('\\Seen');
+  }
+  $scope.messageClass = function(flags){
+    return {
+      'mailbox-seen': flags.indexOf('\\Seen') > -1
+    }
   }
   // $rootScope.$on('$stateChangeStart', function(evt,state){
   $transitions.onStart({ }, function(trans) {
@@ -44536,6 +45695,7 @@ angular.module('huzzahApp.controllers', ['ui.router'])
 
   $rootScope.$on('mailbox.messagedata', function(evt,data){
     $scope.hasMessageResponse = true;
+    console.log("MESSAGE DATA", data);
     $scope.message = data.message;
   });
   $socket.send('mailbox.getmessage', $stateParams);
@@ -44683,7 +45843,7 @@ angular.module('huzzahApp.controllers', ['ui.router'])
 module.exports = 'huzzahApp.controllers';
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"angular":"angular","jquery":"jquery"}],109:[function(require,module,exports){
+},{"angular":"angular","jquery":"jquery"}],110:[function(require,module,exports){
 (function (global){
 global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
@@ -44792,15 +45952,35 @@ angular.module('huzzahApp.directives', [])
 module.exports = 'huzzahApp.directives';
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"angular":"angular","gravatar":98,"jquery":"jquery","moment":101,"quill":106}],110:[function(require,module,exports){
+},{"angular":"angular","gravatar":99,"jquery":"jquery","moment":102,"quill":107}],111:[function(require,module,exports){
 (function (global){
 global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
 
 var moment = require('moment');
-
+var emailaddrs = require('email-addresses');
 
 angular.module('huzzahApp.filters', [])
+.filter('emailParse',function($sanitize){
+  //key can be `name`,`address`,`local`,`domain`
+  return function(emstr,key){
+    // var regex = new RegExp("^(\")?(.*)(?(1)\1|)\s+<(.*)>$","gi");
+    var p = {address:emstr};
+    // var regex = new RegExp("^(\")?(.*)\1$ +\<(.*)\>","g");
+    var regex = new RegExp("(\")?(.*)\\1 +\<(.*)\>","g");
+    var match = regex.exec(emstr);
+    if(match && match.length > 3){
+      p.name = match[2];
+      p.address = match[3];
+    }
+    console.log(emstr, match);
+    // var safe = emstr.replace('&','&amp;');
+    // console.log("EM", safe);
+    // var p = emailaddrs.parseOneAddress(safe);
+    var default_key = "name" in p ? 'name' : 'address';
+    return typeof key=='string' ? p[key] : p[default_key];
+  }
+})
 .filter('jsUcfirst', function(){
   return function(str){
     if(str){
@@ -44841,22 +46021,28 @@ angular.module('huzzahApp.filters', [])
 .filter('mailboxIcon',function(){
   return function(label){
     var default_icon = "folder";
-    var icons = {
-      "INBOX": "inbox-in",
-      "DRAFTS": "file-edit",
-      "ARCHIVE": "archive",
-      "JUNK": "thumbs-down",
-      "SENT": "paper-plane",
-      "TRASH": "trash"
-    };
-    var uc = label.toUpperCase();
-    return 'fa-' + (icons[uc] ? icons[uc] : default_icon);
+    var icons = [
+      {i:"inbox-in", r:/inbox/gi},
+      {i:"file-edit", r:/drafts/gi},
+      {i:"archive", r:/archive/gi},
+      {i:"thumbs-down", r:/junk/gi},
+      {i:"paper-plane", r:/sent/gi},
+      {i:"trash", r:/trash/gi}
+    ];
+    icons.forEach(function(it){
+      if(it.r.test(label)){
+        default_icon = it.i;
+      }
+    })
+    return 'fa-'+default_icon;
+    //var uc = label.toUpperCase();
+    //return 'fa-' + (icons[uc] ? icons[uc] : default_icon);
   }
 })
 module.exports = 'huzzahApp.filters';
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"angular":"angular","jquery":"jquery","moment":101}],111:[function(require,module,exports){
+},{"angular":"angular","email-addresses":98,"jquery":"jquery","moment":102}],112:[function(require,module,exports){
 (function (global){
 var angular = global.angular = require('angular');
 
@@ -44906,7 +46092,64 @@ angular.module('huzzahApp.localstore', [
 module.exports = 'huzzahApp.localstore';
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"angular":"angular","angular-local-storage":77}],112:[function(require,module,exports){
+},{"angular":"angular","angular-local-storage":77}],113:[function(require,module,exports){
+(function (global){
+
+global.jQuery = global.$ = require('jquery');
+var angular = global.angular = require('angular');
+
+angular.module('huzzahApp.multipart', [])
+
+.service('$multipart', function($q,$http){
+  var multipart = {};
+
+  multipart.upload = function(url, params){
+    var promise = $q.defer();
+    $http({
+      method: 'POST',
+      url: url,
+      headers: {'Content-Type': undefined},
+      data: params,
+      uploadEventHandlers: {
+        progress: function(e){
+          if(e.lengthComputable){
+            // console.log(e.loaded, e.total);
+            promise.notify(parseFloat(((e.loaded/e.total)*100).toFixed(1)));
+          }
+        }
+      },
+      transformRequest: function (data, headersGetter) {
+        var formData = new FormData();
+        angular.forEach(data, function (value, key) {
+          if(key=='attachments'){
+            value.forEach(function(f,i){ formData.append("attachment_"+i, f); });
+          }else if(key=='body'){
+            formData.append("body_html", value.html);
+            formData.append("body_text", value.text);
+          }else if(Array.isArray(value)){
+            formData.append(key, value.join(','));
+          }else{
+            formData.append(key, value);
+          }
+        });
+        return formData;
+      }
+    }).then(function (data) {
+      promise.resolve(data);
+      // $state.go('app');
+    }, function (data, status) {
+      console.log('err0r', data, status);
+      promise.reject(data);
+    });
+    return promise.promise;
+  }
+  return multipart;
+})
+
+module.exports = 'huzzahApp.multipart';
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"angular":"angular","jquery":"jquery"}],114:[function(require,module,exports){
 (function (global){
 global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
@@ -44958,7 +46201,7 @@ angular.module('huzzahApp.socket', [])
 module.exports = 'huzzahApp.socket';
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"angular":"angular","jquery":"jquery"}],113:[function(require,module,exports){
+},{"angular":"angular","jquery":"jquery"}],115:[function(require,module,exports){
 (function (global){
 global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
@@ -45059,4 +46302,4 @@ angular.module('huzzahApp.states', ['ui.router'])
 module.exports = 'huzzahApp.states';
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"angular":"angular","jquery":"jquery"}]},{},[107]);
+},{"angular":"angular","jquery":"jquery"}]},{},[108]);

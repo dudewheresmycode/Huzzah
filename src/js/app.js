@@ -15,6 +15,7 @@ angular.module('huzzahApp', [
   require('./lib/localstore.js'),
   require('./lib/states.js'),
   require('./lib/socket.js'),
+  require('./lib/multipart.js'),
   require('./lib/directives.js'),
   require('./lib/filters.js'),
   require('./lib/controllers.js')

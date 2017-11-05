@@ -5,10 +5,10 @@ angular.module('huzzahApp.controllers', ['ui.router'])
 
 .controller('ctl.app', function($scope,$socket,$state,$rootScope,$http,$accountList,mailboxes){
   // $scope.mailboxes = mailboxes.data.mailboxes;
-  console.log($rootScope.session);
+
   $scope.mailboxes = mailboxes;
   var inbox = $scope.mailboxes.find(function(it){ return it.key.toUpperCase()=='INBOX'; });
-  console.log($state.current, inbox.key);
+  console.log("LISTED", $scope.mailboxes);
   if($state.current.name=='app'){
     $state.go('app.mailbox', {mailbox:inbox.key}, {reload:false, notify:true, location:false});
   }
@@ -19,7 +19,14 @@ angular.module('huzzahApp.controllers', ['ui.router'])
       $state.go('app', null, {reload:true});
     });
   }
+  $scope.badgeCount = function(mailbox){
+    if(!mailbox.messages){ return; }
 
+    if(/drafts/gi.test(mailbox.key)){
+      return mailbox.messages.total;
+    }
+    return mailbox.messages.unseen;
+  }
   $rootScope.$on('mailbox.newmail', function($event,count){
     console.log("NEW MAIL!", count);
   });
@@ -34,7 +41,7 @@ angular.module('huzzahApp.controllers', ['ui.router'])
   //   }
   // })
 })
-.controller('ctl.compose',function($scope,$http){
+.controller('ctl.compose',function($scope,$http,$multipart,$state){
   $scope.tags = [
       // { text: 'just' },
       // { text: 'some' },
@@ -59,41 +66,110 @@ angular.module('huzzahApp.controllers', ['ui.router'])
     cc_open: false,
     bcc_open: false
   };
+  $scope.progress = {stage:1, percent:0, saved_uid:null};
+  $scope.saveDate = Date.now();
+
+  $scope.save = function(){
+    $scope.progress.saving=true;
+    var progressListener = function(p){
+      console.log(p);
+      $scope.progress.percent = p;
+    }
+    var successListener = function(d){
+      console.log(d.data.uid);
+      if(d.data.uid){
+        $scope.progress.saved_uid = d.data.uid;
+        $scope.progress.last_saved = Date.now();
+      }
+      $scope.progress.percent = 100;
+      $scope.progress.saving = false;
+      //saved
+    }
+    var errorListener = function(e){
+      console.log(e);
+      $scope.progress.error = e;
+      $scope.progress.percent = 0;
+      $scope.progress.saving = false;
+    }
+    var api_url = "/imap/draft";
+    if($scope.progress.saved_uid){
+      api_url += '?uid='+$scope.progress.saved_uid;
+    }
+    $multipart.upload(api_url, $scope.params).then(successListener, errorListener, progressListener);
+  }
+
+
   $scope.send = function(){
+    var progressListener = function(p){
+      console.log(p);
+      $scope.progress.percent = p;
+    }
+    var successListener = function(d){
+      console.log(d);
+      $scope.progress.percent = 100;
+    }
+    var errorListener = function(e){
+      console.log(e);
+      $scope.progress.error = e;
+      $scope.progress.percent = 0;
+    }
     console.log('sending...', $scope.params);
     // $http.post('/smtp/send', $scope.params).then(function(d){
     //   console.log('sent', d);
     // });
 
-    $http({
-      method: 'POST',
-      url: '/smtp/send',
-      headers: {'Content-Type': undefined},
-      data: $scope.params,
-      transformRequest: function (data, headersGetter) {
-        var formData = new FormData();
-        angular.forEach(data, function (value, key) {
-          if(key=='attachments'){
-            value.forEach(function(f,i){ formData.append("attachment_"+i, f); });
-          }else if(key=='body'){
-            formData.append("body_html", value.html);
-            formData.append("body_text", value.text);
-          }else if(Array.isArray(value)){
-            formData.append(key, value.join(','));
-          }else{
-            formData.append(key, value);
-          }
-        });
-        // var headers = headersGetter();
-        // delete headers['Content-Type'];
-        return formData;
-      }
-    }).then(function (data) {
-      console.log('sent', data);
-      $state.go('app');
-    }, function (data, status) {
-      console.log('err0r', data, status);
-    });
+    if(!$scope.params.to || $scope.params.to.length==0){
+      $scope.progress.error = 'Email should have at least one To: address';
+      return;
+    }
+    if(!$scope.params.subject || $scope.params.subject.length==0){
+      $scope.progress.error = 'Email should have a subject';
+      return;
+    }
+
+    $scope.progress.stage = 2;
+    $multipart.upload("/smtp/send", $scope.params).then(successListener, errorListener, progressListener);
+
+    // $http({
+    //   method: 'POST',
+    //   url: '/smtp/send',
+    //   headers: {'Content-Type': undefined},
+    //   data: $scope.params,
+    //   uploadEventHandlers: {
+    //     progress: function(e){
+    //       if(e.lengthComputable){
+    //         $scope.progress.percent = parseFloat(((e.loaded/e.total)*100).toFixed(1));
+    //         console.log(e.loaded, e.total);
+    //       }
+    //     }
+    //   },
+    //   transformRequest: function (data, headersGetter) {
+    //     var formData = new FormData();
+    //     angular.forEach(data, function (value, key) {
+    //       if(key=='attachments'){
+    //         value.forEach(function(f,i){ formData.append("attachment_"+i, f); });
+    //       }else if(key=='body'){
+    //         formData.append("body_html", value.html);
+    //         formData.append("body_text", value.text);
+    //       }else if(Array.isArray(value)){
+    //         formData.append(key, value.join(','));
+    //       }else{
+    //         formData.append(key, value);
+    //       }
+    //     });
+    //     // var headers = headersGetter();
+    //     // delete headers['Content-Type'];
+    //     return formData;
+    //   }
+    // }).then(function (data) {
+    //   console.log('sent', data);
+    //   $scope.progress.percent = 100;
+    //   $scope.progress.stage = 3;
+    //   // $state.go('app');
+    // }, function (data, status) {
+    //   $scope.progress.stage = 1;
+    //   console.log('err0r', data, status);
+    // });
 
   }
 })
@@ -104,12 +180,21 @@ angular.module('huzzahApp.controllers', ['ui.router'])
   $scope.hasMessageOpened = $state.current.name=='app.mailbox.message';
   $rootScope.$on('mailbox.messages', function(evt,data){
     $scope.messages = data.messages;
+    console.log('mailbox.messages', data.messages);
     $scope.hasMailboxResponse = true;
   });
   $socket.send('mailbox.open', $stateParams);
 
   $scope.fetch = function(){
     $socket.send('mailbox.open', $stateParams);
+  }
+  $scope.setSeen = function(message){
+    message.attrs.flags.push('\\Seen');
+  }
+  $scope.messageClass = function(flags){
+    return {
+      'mailbox-seen': flags.indexOf('\\Seen') > -1
+    }
   }
   // $rootScope.$on('$stateChangeStart', function(evt,state){
   $transitions.onStart({ }, function(trans) {
@@ -122,6 +207,7 @@ angular.module('huzzahApp.controllers', ['ui.router'])
 
   $rootScope.$on('mailbox.messagedata', function(evt,data){
     $scope.hasMessageResponse = true;
+    console.log("MESSAGE DATA", data);
     $scope.message = data.message;
   });
   $socket.send('mailbox.getmessage', $stateParams);

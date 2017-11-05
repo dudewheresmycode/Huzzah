@@ -2,9 +2,29 @@ global.jQuery = global.$ = require('jquery');
 var angular = global.angular = require('angular');
 
 var moment = require('moment');
-
+var emailaddrs = require('email-addresses');
 
 angular.module('huzzahApp.filters', [])
+.filter('emailParse',function($sanitize){
+  //key can be `name`,`address`,`local`,`domain`
+  return function(emstr,key){
+    // var regex = new RegExp("^(\")?(.*)(?(1)\1|)\s+<(.*)>$","gi");
+    var p = {address:emstr};
+    // var regex = new RegExp("^(\")?(.*)\1$ +\<(.*)\>","g");
+    var regex = new RegExp("(\")?(.*)\\1 +\<(.*)\>","g");
+    var match = regex.exec(emstr);
+    if(match && match.length > 3){
+      p.name = match[2];
+      p.address = match[3];
+    }
+    console.log(emstr, match);
+    // var safe = emstr.replace('&','&amp;');
+    // console.log("EM", safe);
+    // var p = emailaddrs.parseOneAddress(safe);
+    var default_key = "name" in p ? 'name' : 'address';
+    return typeof key=='string' ? p[key] : p[default_key];
+  }
+})
 .filter('jsUcfirst', function(){
   return function(str){
     if(str){
@@ -45,16 +65,22 @@ angular.module('huzzahApp.filters', [])
 .filter('mailboxIcon',function(){
   return function(label){
     var default_icon = "folder";
-    var icons = {
-      "INBOX": "inbox-in",
-      "DRAFTS": "file-edit",
-      "ARCHIVE": "archive",
-      "JUNK": "thumbs-down",
-      "SENT": "paper-plane",
-      "TRASH": "trash"
-    };
-    var uc = label.toUpperCase();
-    return 'fa-' + (icons[uc] ? icons[uc] : default_icon);
+    var icons = [
+      {i:"inbox-in", r:/inbox/gi},
+      {i:"file-edit", r:/drafts/gi},
+      {i:"archive", r:/archive/gi},
+      {i:"thumbs-down", r:/junk/gi},
+      {i:"paper-plane", r:/sent/gi},
+      {i:"trash", r:/trash/gi}
+    ];
+    icons.forEach(function(it){
+      if(it.r.test(label)){
+        default_icon = it.i;
+      }
+    })
+    return 'fa-'+default_icon;
+    //var uc = label.toUpperCase();
+    //return 'fa-' + (icons[uc] ? icons[uc] : default_icon);
   }
 })
 module.exports = 'huzzahApp.filters';

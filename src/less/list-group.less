@@ -6,6 +6,17 @@
     border-left: 0;
     border-right: 0;
 
+    border-left: 5px solid @brand-primary;
+    &.active {
+      background-color: darken(@gray-lighter,10%);
+      border-color: transparent;
+      color: @gray-base;
+      
+      .list-group-item-heading,
+      .list-group-item-text {
+        color: @gray-base;
+      }
+    }
     &:last-child {
       border-radius: 0px;
     }
@@ -23,6 +34,22 @@
       text-overflow: ellipsis;
       overflow: hidden;
     }
+
+    &.mailbox-seen:not(.active) {
+      // color: #aaa;
+      border-left-color: transparent;
+      background-color: lighten(@gray-lighter, 5%);
+
+      .list-group-item-heading {
+        // color: #aaa;
+        font-weight: normal;
+      }
+      .list-group-item-text {
+        font-weight: normal;
+      }
+
+    }
+
   }
 }
 
